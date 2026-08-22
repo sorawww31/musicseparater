@@ -10,10 +10,10 @@ from typing import Any
 import numpy as np
 import onnxruntime as ort
 import torch
-from config import BS_POLARFORMER, BSPolarFormerConfig
 from huggingface_hub import hf_hub_download
 from tqdm import tqdm
 
+from backend.src.config import BS_POLARFORMER, BSPolarFormerConfig
 from src.audio_files import load_audio, write_stems
 from src.model_conversion import convert_model_to_mixed_fp16
 

@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from config import BS_POLARFORMER
+from backend.src.config import BS_POLARFORMER
 
 
 @dataclass(frozen=True)

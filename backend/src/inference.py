@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import argparse
+from collections.abc import Mapping
 from functools import lru_cache
 from threading import Lock
-from typing import Any, Mapping
+from typing import Any
 
-from config import BS_POLARFORMER
+from backend.src.config import BS_POLARFORMER
 from src.models import BSPolarFormer
 from src.separation_request import SeparationRequest
 
@@ -20,20 +21,24 @@ _SEPARATION_LOCK = Lock()
 
 @lru_cache(maxsize=1)
 def _separator_for(
-    model_path: str | None,
+    model_id: str,
+    file_object: Any,
     cache_dir: str | None,
     providers: tuple[str, ...],
     precision: str,
     chunk_size: int | None,
 ) -> BSPolarFormer:
     """同一設定の separator を返す。キャッシュは VRAM を一つのモデルに限定する。"""
-    return BSPolarFormer(
-        model_path=model_path,
-        cache_dir=cache_dir,
-        providers=list(providers) or None,
-        precision=precision,
-        chunk_size=chunk_size,
-    )
+    if model_id not in MODEL_ID:
+        raise ValueError(f"未対応のモデルです: {model_id}. 現在は {MODEL_ID} のみ対応しています")
+    if model_id == "bs-polarformer":
+        return BSPolarFormer(
+            file_object=file_object,
+            cache_dir=cache_dir,
+            providers=list(providers) or None,
+            precision=precision,
+            chunk_size=chunk_size,
+        )
 
 
 def inference(model_id: str, meta_data: Mapping[str, Any]) -> dict[str, str]:
@@ -46,13 +51,14 @@ def inference(model_id: str, meta_data: Mapping[str, Any]) -> dict[str, str]:
     # 生成・ロードも lock 内に置き、同時リクエストが別 session を確保することを防ぐ。
     with _SEPARATION_LOCK:
         separator = _separator_for(
-            request.model_path,
+            model_id,
+            request.file_objecj,
             request.cache_dir,
             request.providers,
             request.precision,
             request.chunk_size,
         )
-        return separator.separate_file(request.input_path, request.output_dir)
+        return separator.separate_file(request.file_object, request.output_dir)
 
 
 def main() -> None:

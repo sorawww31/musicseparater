@@ -22,5 +22,5 @@ RUN uv sync --locked --no-install-project
 COPY . .
 
 RUN uv sync --locked --no-install-project
-
-CMD ["python", "inference.py", "--help"]
+CMD ["uv", "run", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+# CMD ["python", "inference.py", "--help"]
