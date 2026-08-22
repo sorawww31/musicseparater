@@ -11,6 +11,11 @@
 推論を一つずつ実行します。CUDA 環境では STFT・mask・iSTFT を GPU に置き、ONNX Runtime の I/O
 Binding で mask を CPU へ往復させません。
 
+実装の責務は次のように分けています。`inference.py` は公開 API・CLI・実行の直列化、
+`src/separation_request.py` は API 入力の検証と正規化、`src/models.py` は ONNX 推論、
+`src/audio_files.py` は音声ファイルの読み書きを担当します。公開する `inference()` と
+`BSPolarFormer.separate_file()` の呼び出し方は変わりません。
+
 ```bash
 docker compose run --rm -v "$PWD:/workspace" backend \
   python inference.py /workspace/song.mp3 --output-dir /workspace/output \

@@ -46,6 +46,7 @@ dependencies = [
     { name = "onnxconverter-common" },
     { name = "onnxruntime-gpu" },
     { name = "soundfile" },
+    { name = "tqdm" },
 ]
 
 [package.metadata]
@@ -58,6 +59,7 @@ requires-dist = [
     { name = "onnxconverter-common", specifier = ">=1.16.0,<1.17.0" },
     { name = "onnxruntime-gpu", specifier = ">=1.23.0,<1.27.0" },
     { name = "soundfile", specifier = ">=0.13.0" },
+    { name = "tqdm", specifier = ">=4.67.1" },
 ]
 
 [[package]]

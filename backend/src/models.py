@@ -7,7 +7,14 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import numpy as np
+import onnxruntime as ort
+import torch
 from config import BS_POLARFORMER, BSPolarFormerConfig
+from huggingface_hub import hf_hub_download
+from tqdm import tqdm
+
+from src.audio_files import load_audio, write_stems
 from src.model_conversion import convert_model_to_mixed_fp16
 
 
@@ -90,11 +97,7 @@ class BSPolarFormer(BaseSeparator):
         """モデルを必要時だけ Hugging Face から取得し、ONNX Runtime を起動する。"""
         if self.session is not None:
             return
-        try:
-            import onnxruntime as ort
-            from huggingface_hub import hf_hub_download
-        except ImportError as exc:
-            raise RuntimeError("依存関係を導入してください: uv sync") from exc
+
 
         model_path = self.model_path
         downloaded_from_hub = model_path is None
@@ -104,8 +107,6 @@ class BSPolarFormer(BaseSeparator):
                 filename=self.config.model_filename_for(self.precision),
                 cache_dir=self.cache_dir,
             ))
-        if not model_path.is_file():
-            raise FileNotFoundError(f"BS PolarFormer の ONNX モデルが見つかりません: {model_path}")
 
         available = ort.get_available_providers()
         requested = self.providers or ["CUDAExecutionProvider", "CPUExecutionProvider"]
@@ -121,6 +122,7 @@ class BSPolarFormer(BaseSeparator):
             target_path = self.config.converted_fp16_model_path(model_path, self.cache_dir)
             model_path = convert_model_to_mixed_fp16(model_path, target_path)
         configured_providers: list[Any] = []
+
         for provider in selected:
             if provider == "CUDAExecutionProvider":
                 configured_providers.append(
@@ -158,24 +160,9 @@ class BSPolarFormer(BaseSeparator):
     def separate_file(self, input_path: str | Path, output_dir: str | Path) -> dict[str, str]:
         """音声ファイルを読み、2 つの WAV ステムを書き出してパスを返す。"""
         self._require_runtime()
-        try:
-            import librosa
-            import soundfile as sf
-        except ImportError as exc:
-            raise RuntimeError("依存関係を導入してください: uv sync") from exc
-
-        source = Path(input_path)
-        if not source.is_file():
-            raise FileNotFoundError(f"入力音声が見つかりません: {source}")
-        waveform, _ = librosa.load(source, sr=self.config.sample_rate, mono=False)
+        waveform = load_audio(input_path, self.config.sample_rate)
         result = self.separate(AudioData(waveform=waveform, sample_rate=self.config.sample_rate))
-
-        destination = Path(output_dir)
-        destination.mkdir(parents=True, exist_ok=True)
-        output_paths = {name: destination / f"{name}.wav" for name in self.metadata.stems}
-        for stem, path in output_paths.items():
-            sf.write(path, result.stems[stem].T, result.sample_rate)
-        return {stem: str(path) for stem, path in output_paths.items()}
+        return write_stems(result.stems, result.sample_rate, output_dir)
 
     def _require_runtime(self) -> None:
         if self.session is None:
@@ -183,10 +170,7 @@ class BSPolarFormer(BaseSeparator):
 
     def _normalize_audio(self, waveform: Any) -> Any:
         """mono / 多チャンネル入力をモデル入出力仕様の stereo float32 にそろえる。"""
-        try:
-            import numpy as np
-        except ImportError as exc:
-            raise RuntimeError("依存関係を導入してください: uv sync") from exc
+
 
         audio = np.asarray(waveform, dtype=np.float32)
         if audio.ndim == 1:
@@ -199,13 +183,9 @@ class BSPolarFormer(BaseSeparator):
 
     def _separate_chunks(self, audio: Any) -> Any:
         """オーバーラップ平均で長尺音源を処理する。"""
-        import numpy as np
 
         total_samples = audio.shape[1]
-        try:
-            from tqdm import tqdm
-        except ImportError as exc:
-            raise RuntimeError("進捗表示の依存関係を導入してください: uv sync") from exc
+       
 
         step = self.chunk_size // self.config.overlap_count
         vocals = np.zeros_like(audio, dtype=np.float32)
@@ -237,14 +217,13 @@ class BSPolarFormer(BaseSeparator):
         """ORT と PyTorch の両方で CUDA を使える場合だけ、GPU 前後処理を有効にする。"""
         if not self._uses_cuda:
             return None
-        import torch
+        
 
         if not torch.cuda.is_available():
             return None
         return torch.device("cuda", self.config.cuda_device_id)
 
     def _prepare_stft(self, audio: Any, device: Any | None) -> _StftData:
-        import torch
 
         # mixed FP16 モデルも ONNX 入出力は FP32 固定。半精度の特徴量を渡すと
         # 入力契約に合わないため、常に float32 を生成する。
@@ -260,8 +239,6 @@ class BSPolarFormer(BaseSeparator):
 
     def _run_cuda_with_iobinding(self, features: Any, device: Any) -> Any:
         """GPU tensor を ORT の入出力へ直接 bind し、STFT mask の host 往復を避ける。"""
-        import numpy as np
-        import torch
 
         # PyTorch の STFT 完了後に ORT が同じ buffer を読むよう同期する。曲ごとに直列化して
         # いるため、この保守的な同期でも並列実行との競合は発生しない。
@@ -293,7 +270,6 @@ class BSPolarFormer(BaseSeparator):
         return mask
 
     def _reconstruct_audio(self, prepared: _StftData, mask: Any) -> Any:
-        import torch
 
         stft = torch.view_as_complex(prepared.stft.unsqueeze(1).contiguous())
         mask_tensor = mask if isinstance(mask, torch.Tensor) else torch.from_numpy(mask)

@@ -6,6 +6,8 @@ from pathlib import Path
 from tempfile import NamedTemporaryFile
 from typing import Any
 
+import onnx
+from onnxconverter_common import float16
 
 # IEEE 754 half precision が表せる範囲。変換器の緩い既定値より丸めを抑える。
 _MIN_FP16_POSITIVE = 5.96e-08
@@ -20,12 +22,6 @@ def convert_model_to_mixed_fp16(source_path: Path, target_path: Path) -> Path:
     """
     if target_path.is_file():
         return target_path
-
-    try:
-        import onnx
-        from onnxconverter_common import float16
-    except ImportError as exc:
-        raise RuntimeError("FP16 モデル変換の依存関係を導入してください: uv sync") from exc
 
     target_path.parent.mkdir(parents=True, exist_ok=True)
     model: Any = onnx.load_model(str(source_path))

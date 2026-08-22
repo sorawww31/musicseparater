@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import argparse
 from functools import lru_cache
-from pathlib import Path
 from threading import Lock
 from typing import Any, Mapping
 
 from config import BS_POLARFORMER
 from src.models import BSPolarFormer
+from src.separation_request import SeparationRequest
 
 MODEL_ID = "bs-polarformer"
 
@@ -41,35 +41,18 @@ def inference(model_id: str, meta_data: Mapping[str, Any]) -> dict[str, str]:
     if model_id != MODEL_ID:
         raise ValueError(f"未対応のモデルです: {model_id}. 現在は {MODEL_ID} のみ対応しています")
 
-    input_path = meta_data.get("input_path", meta_data.get("audio_path"))
-    if not input_path:
-        raise ValueError("meta_data に input_path を指定してください")
-    output_dir = meta_data.get("output_dir", BS_POLARFORMER.output_directory)
-    providers = meta_data.get("providers")
-    if providers is not None and (not isinstance(providers, list) or not all(isinstance(p, str) for p in providers)):
-        raise ValueError("providers は ONNX Runtime provider 名の文字列リストにしてください")
-    precision = meta_data.get("precision", BS_POLARFORMER.default_precision)
-    if precision not in BS_POLARFORMER.supported_precisions:
-        supported = ", ".join(BS_POLARFORMER.supported_precisions)
-        raise ValueError(f"precision は {supported} のいずれかを指定してください: {precision}")
-    chunk_size = meta_data.get("chunk_size")
-    if chunk_size is not None and (
-        isinstance(chunk_size, bool)
-        or not isinstance(chunk_size, int)
-        or chunk_size < BS_POLARFORMER.win_length
-    ):
-        raise ValueError(f"chunk_size は {BS_POLARFORMER.win_length} 以上の整数にしてください")
+    request = SeparationRequest.from_metadata(meta_data)
 
     # 生成・ロードも lock 内に置き、同時リクエストが別 session を確保することを防ぐ。
     with _SEPARATION_LOCK:
         separator = _separator_for(
-            str(meta_data["model_path"]) if meta_data.get("model_path") else None,
-            str(meta_data["cache_dir"]) if meta_data.get("cache_dir") else None,
-            tuple(providers or ()),
-            precision,
-            chunk_size,
+            request.model_path,
+            request.cache_dir,
+            request.providers,
+            request.precision,
+            request.chunk_size,
         )
-        return separator.separate_file(Path(input_path), Path(output_dir))
+        return separator.separate_file(request.input_path, request.output_dir)
 
 
 def main() -> None:
