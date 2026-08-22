@@ -1,5 +1,23 @@
 # React + TypeScript + Vite
 
+## Project Notes
+
+このフロントエンドは Docker Compose の `frontend` サービス上で動かします。
+画面の入口は `src/App.tsx` で、個別の責務は次のように分けています。
+
+- `src/components/Header.tsx`: アプリ説明ヘッダー。
+- `src/components/UploadArea.tsx`: 音声ファイル選択とドラッグ&ドロップ。
+- `src/config.ts`: 変更されやすい UI 既定値。
+- `src/features/modelCatalog/`: 分離モデル候補の型、データ、最小テスト。
+
+Docker 上での確認コマンド:
+
+```sh
+docker compose run --rm frontend npm test
+docker compose run --rm frontend npm run lint
+docker compose run --rm frontend npm run build
+```
+
 This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
 
 Currently, two official plugins are available:
