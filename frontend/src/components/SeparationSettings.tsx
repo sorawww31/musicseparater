@@ -5,11 +5,12 @@ import {
   modelsByMode,
 } from '../features/modelCatalog/modelCatalog'
 
-type SeparationTypeSelectorProps = {
+
+type SeparationModeSelectorProps = {
   selectedMode: SeparationMode
-  setselectedMode: React.Dispatch<React.SetStateAction<SeparationMode>>
+  onModeChange: (mode: SeparationMode) => void
 }
-function SeparationTypeSelector({ selectedMode, setselectedMode }: SeparationTypeSelectorProps) {
+function SeparationModeSelector({ selectedMode, onModeChange }: SeparationModeSelectorProps) {
     
     return (
     <div>
@@ -23,7 +24,7 @@ function SeparationTypeSelector({ selectedMode, setselectedMode }: SeparationTyp
               name="separation-mode"
               value={mode}
               checked={selectedMode === mode}
-              onChange={() => setselectedMode(mode)}
+              onChange={() => onModeChange(mode)}
             />
 
             {mode}
@@ -109,16 +110,21 @@ function SingerCountSelector({ selectedMode, singerCount, setSingerCount }: Sing
 }
 
 export function SeparationSettings() {
-    const [selectedMode, setselectedMode] = useState<SeparationMode>('2stem');
+    const [selectedMode, setSelectedMode] = useState<SeparationMode>('2stem');
     const [selectedModel, setSelectedModel] = useState<string>(modelsByMode[selectedMode][0].id);
     const [singerCount, setSingerCount] = useState<number | string>("not multi-singer mode");
-
+    
+    function handleModeChange(mode: SeparationMode) {
+        setSelectedMode(mode)
+        setSelectedModel(modelsByMode[mode][0].id)
+    }
     return (
+    
     <section>
       <h2>分離設定</h2>
-      <SeparationTypeSelector 
+      <SeparationModeSelector 
         selectedMode={selectedMode}
-        setselectedMode={setselectedMode}
+        onModeChange={handleModeChange}
       />
       <SeparationModelSelector
         selectedMode={selectedMode}

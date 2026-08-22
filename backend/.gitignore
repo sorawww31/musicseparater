@@ -1,0 +1,6 @@
+# backend/.gitignore: ローカル依存・ダウンロード済みモデル・分離結果をリポジトリへ含めない。
+.venv/
+.model-cache/
+output/
+__pycache__/
+*.py[cod]

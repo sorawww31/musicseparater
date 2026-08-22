@@ -1,0 +1,7 @@
+# backend/.dockerignore: ローカル環境・生成物をイメージへ持ち込まず、再現可能なビルドにする。
+.venv/
+.model-cache/
+__pycache__/
+*.py[cod]
+.env
+output/
