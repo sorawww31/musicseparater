@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from backend.src.config import BS_POLARFORMER
+from .config import BS_POLARFORMER, SEPARATION_RUNTIME
 
 
 @dataclass(frozen=True)
@@ -26,22 +26,39 @@ class SeparationRequest:
     def from_metadata(cls, metadata: Mapping[str, Any]) -> SeparationRequest:
         """既存の `input_path` / `audio_path` 契約を保ったまま入力を検証する。"""
         input_path = metadata.get("input_path", metadata.get("audio_path"))
-        providers = metadata.get("providers")
-        precision = metadata.get("precision", BS_POLARFORMER.default_precision)
-        chunk_size = metadata.get("chunk_size")
+        providers = metadata.get("providers", SEPARATION_RUNTIME.providers)
+        precision = metadata.get("precision", SEPARATION_RUNTIME.precision)
+        chunk_size = metadata.get("chunk_size", SEPARATION_RUNTIME.chunk_size)
+
+        if not input_path:
+            raise ValueError("input_path が必要です")
+        if not isinstance(providers, (list, tuple)) or not all(
+            isinstance(provider, str) and provider for provider in providers
+        ):
+            raise ValueError("providers が不正です")
+        if precision not in BS_POLARFORMER.supported_precisions:
+            raise ValueError("precision が不正です")
+        if chunk_size is not None and (
+            isinstance(chunk_size, bool)
+            or not isinstance(chunk_size, int)
+            or chunk_size < BS_POLARFORMER.win_length
+        ):
+            raise ValueError("chunk_size が不正です")
 
         return cls(
             input_path=Path(input_path),
             output_dir=Path(metadata.get("output_dir", BS_POLARFORMER.output_directory)),
-            model_path=cls._optional_path_value(metadata, "model_path"),
-            cache_dir=cls._optional_path_value(metadata, "cache_dir"),
+            model_path=cls._optional_path_value(metadata, "model_path", SEPARATION_RUNTIME.model_path),
+            cache_dir=cls._optional_path_value(metadata, "cache_dir", SEPARATION_RUNTIME.cache_dir),
             providers=tuple(providers or ()),
             precision=precision,
             chunk_size=chunk_size,
         )
 
     @staticmethod
-    def _optional_path_value(metadata: Mapping[str, Any], key: str) -> str | None:
+    def _optional_path_value(
+        metadata: Mapping[str, Any], key: str, default: str | None = None
+    ) -> str | None:
         """従来どおり、空値は未指定として扱い、指定値は文字列化する。"""
-        value = metadata.get(key)
+        value = metadata.get(key, default)
         return str(value) if value else None

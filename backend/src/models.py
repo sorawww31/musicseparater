@@ -8,14 +8,11 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
-import onnxruntime as ort
 import torch
-from huggingface_hub import hf_hub_download
-from tqdm import tqdm
 
-from backend.src.config import BS_POLARFORMER, BSPolarFormerConfig
-from src.audio_files import load_audio, write_stems
-from src.model_conversion import convert_model_to_mixed_fp16
+from .audio_files import load_audio, write_stems
+from .config import BS_POLARFORMER, BSPolarFormerConfig
+from .model_conversion import convert_model_to_mixed_fp16
 
 
 @dataclass(frozen=True)
@@ -98,6 +95,8 @@ class BSPolarFormer(BaseSeparator):
         if self.session is not None:
             return
 
+        import onnxruntime as ort
+        from huggingface_hub import hf_hub_download
 
         model_path = self.model_path
         downloaded_from_hub = model_path is None
@@ -183,6 +182,7 @@ class BSPolarFormer(BaseSeparator):
 
     def _separate_chunks(self, audio: Any) -> Any:
         """オーバーラップ平均で長尺音源を処理する。"""
+        from tqdm import tqdm
 
         total_samples = audio.shape[1]
        

@@ -6,12 +6,10 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-import librosa
-import soundfile as sound_file
-
-
 def load_audio(source: str | Path, sample_rate: int) -> Any:
     """ファイルを検証し、指定サンプルレートのチャンネル先行 waveform として読む。"""
+    # コーデック依存は実際の読み込み時まで遅延し、API 起動と単体テストを軽く保つ。
+    import librosa
 
     source_path = Path(source).resolve()
     waveform, _ = librosa.load(source_path, sr=sample_rate, mono=False)
@@ -20,6 +18,7 @@ def load_audio(source: str | Path, sample_rate: int) -> Any:
 
 def write_stems(stems: Mapping[str, Any], sample_rate: int, output_dir: str | Path) -> dict[str, str]:
     """チャンネル先行のステムを WAV に書き出し、ステム名ごとの出力パスを返す。"""
+    import soundfile as sound_file
 
     destination = Path(output_dir)
     destination.mkdir(parents=True, exist_ok=True)

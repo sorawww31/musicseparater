@@ -6,9 +6,6 @@ from pathlib import Path
 from tempfile import NamedTemporaryFile
 from typing import Any
 
-import onnx
-from onnxconverter_common import float16
-
 # IEEE 754 half precision が表せる範囲。変換器の緩い既定値より丸めを抑える。
 _MIN_FP16_POSITIVE = 5.96e-08
 _MAX_FP16_FINITE = 65_504.0
@@ -22,6 +19,10 @@ def convert_model_to_mixed_fp16(source_path: Path, target_path: Path) -> Path:
     """
     if target_path.is_file():
         return target_path
+
+    # 変換済みキャッシュの利用時は、大きな変換依存を読み込まない。
+    import onnx
+    from onnxconverter_common import float16
 
     target_path.parent.mkdir(parents=True, exist_ok=True)
     model: Any = onnx.load_model(str(source_path))

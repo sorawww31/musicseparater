@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-import backend.src.inference as inference  # noqa: E402
+import src.inference as inference  # noqa: E402
 
 
 class InferenceContractTests(unittest.TestCase):

@@ -1,4 +1,4 @@
-"""backend/config.py: BS PolarFormer の実行時設定を一箇所に集約する。"""
+"""backend/src/config.py: モデル実行と音声保存の調整値を一箇所に集約する。"""
 
 from dataclasses import dataclass
 from pathlib import Path
@@ -56,4 +56,25 @@ class BSPolarFormerConfig:
         return cache_root / self.converted_model_subdirectory / filename
 
 
+@dataclass(frozen=True)
+class SeparationRuntimeConfig:
+    """HTTP リクエストから隠し、サーバー側で管理する推論設定。"""
+
+    model_path: str | None = None
+    cache_dir: str | None = None
+    providers: tuple[str, ...] = ()
+    precision: str = "fp16"
+    chunk_size: int | None = None
+
+
+@dataclass(frozen=True)
+class AudioStorageConfig:
+    """アップロード音声と分離結果の保存場所を定義する。"""
+
+    root_directory: Path = Path("audio")
+    upload_chunk_size: int = 1024 * 1024
+
+
 BS_POLARFORMER = BSPolarFormerConfig()
+SEPARATION_RUNTIME = SeparationRuntimeConfig()
+AUDIO_STORAGE = AudioStorageConfig()

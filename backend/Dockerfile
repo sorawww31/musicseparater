@@ -4,7 +4,7 @@ FROM pytorch/pytorch:2.13.0-cuda12.6-cudnn9-runtime
 COPY --from=ghcr.io/astral-sh/uv:0.12.5 /uv /uvx /bin/
 
 WORKDIR /app
-
+ENV TZ=Asia/Tokyo
 # CUDA 対応 PyTorch はベースイメージから継承し、uv 環境からも参照できるようにする。
 ENV UV_PROJECT_ENVIRONMENT=/opt/musicseparater-venv
 ENV VIRTUAL_ENV=/opt/musicseparater-venv
@@ -23,4 +23,4 @@ COPY . .
 
 RUN uv sync --locked --no-install-project
 CMD ["uv", "run", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
-# CMD ["python", "inference.py", "--help"]
+# CMD ["python", "-m", "src.inference", "--help"]
