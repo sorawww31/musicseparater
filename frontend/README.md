@@ -1,93 +1,35 @@
-# React + TypeScript + Vite
+<!-- frontend/README.md: 非同期分離画面の起動方法と責務を記録する。 -->
 
-## Project Notes
+# Music Separation Frontend
 
-このフロントエンドは Docker Compose の `frontend` サービス上で動かします。
-画面の入口は `src/App.tsx` で、個別の責務は次のように分けています。
+音声選択、実装済みモデル選択、アップロード、非同期ジョブの進捗、WAV試聴・ダウンロードを一画面で
+扱うReact + TypeScript + Viteフロントエンドです。
 
-- `src/components/Header.tsx`: アプリ説明ヘッダー。
-- `src/components/UploadArea.tsx`: 音声ファイル選択とドラッグ&ドロップ。
-- `src/config.ts`: 変更されやすい UI 既定値。
-- `src/features/modelCatalog/`: 分離モデル候補の型、データ、最小テスト。
+実装済みモデルは BS PolarFormer、UNMIXX、SepACap、Singer-Informedです。4/6ステム候補と
+MedleyVoxは一覧に残しますが、`未実装` として選択不能にしています。複数歌声では Blind separation と
+Target singer extractionを切り替えます。後者は対象楽曲に加えて対象歌手だけの3秒以上の参照音声を
+アップロードし、`Target Vocal` と `Other Singer + Instrumental` を返します。
 
-Docker 上での確認コマンド:
+主な責務は次の通りです。
 
-```sh
+- `src/App.tsx`: 楽曲・参照音声の `audio_id` 再利用とジョブポーリング。
+- `src/api/audio.ts`: FastAPIの型付きHTTP契約。
+- `src/components/SeparationSettings.tsx`: 実装状態を反映したモデル選択。
+- `src/components/JobStatusPanel.tsx`: 段階・進捗・試聴・ダウンロード。
+- `src/config.ts`: API URLと1秒のポーリング間隔。
+
+API originは既定で `http://localhost:8000` です。変更する場合は `.env.example` を参考に
+`VITE_API_URL` を設定してください。バックエンドが返す相対URLは `resolveApiUrl` で結合します。
+
+```bash
+docker compose up frontend
+```
+
+検証もホストのNode環境ではなくDocker内で実行します。
+
+```bash
+docker compose run --rm frontend npm install
 docker compose run --rm frontend npm test
 docker compose run --rm frontend npm run lint
 docker compose run --rm frontend npm run build
-```
-
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
-
-Currently, two official plugins are available:
-
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
-
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-
-```
-
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
-
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
-
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-
 ```

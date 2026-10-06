@@ -1,118 +1,137 @@
-<!-- backend/README.md: BS PolarFormer のローカル実行方法を記録する。 -->
+<!-- backend/README.md: 実装済みモデル、非同期API、GPU実行条件を記録する。 -->
 
-# Backend
+# Music Separation Backend
 
-`bgkb/bs_polarformer` の ONNX モデルを使い、44.1 kHz stereo 音声を
-`vocals.wav` と `instrumental.wav` に分離します。初回実行時は、既定の FP16 なら公式配布済みの
-約 108 MB モデル、`--precision fp32` なら約 211 MB モデルを Hugging Face キャッシュへダウンロードします。
+FastAPI と1本のGPUキューで、次のモデルを実行します。
 
-推論チャンクは既定で 441,000 samples（10 秒）です。2 倍のオーバーラップを平均して境界ノイズを
-抑えます。Python API から同じ設定で連続して呼ぶ場合は ONNX session をプロセス内で再利用し、GPU
-推論を一つずつ実行します。CUDA 環境では STFT・mask・iSTFT を GPU に置き、ONNX Runtime の I/O
-Binding で mask を CPU へ往復させません。
+| model_id | 処理 | 公開ステム | 内部精度 |
+| --- | --- | --- | --- |
+| `bs-polarformer` | 2ステム分離 | vocals, instrumental | ONNX FP16（既定） |
+| `unmixx` | 2人の歌声分離 | singer_1, singer_2, instrumental | PyTorch FP32 |
+| `sepacap` | アカペラ声部分離 | 7声部, instrumental | PyTorch BF16 |
+| `singer-informed` | 参照歌手抽出 | target_vocal, residual | ONNX FP16 → PyTorch FP32 |
 
-実装の責務は次のように分けています。`inference.py` は公開 API・CLI・実行の直列化、
-`src/separation_request.py` は API 入力の検証と正規化、`src/models.py` は ONNX 推論、
-`src/audio_files.py` は音声ファイルの読み書き、`src/storage.py` は HTTP の保存構造を担当します。
-コーデック・ONNX Runtime・モデル変換などの重い依存は、必要な処理を実行するときに遅延ロードします。
-`model_path`、`cache_dir`、`providers`、`precision`、`chunk_size` はサーバー設定として
-`src/config.py` に置き、HTTP リクエストには公開しません。Python API から辞書で渡す場合も、
-推論開始前に型と対応値を検証します。
+UNMIXX と SepACap は、最初に BS PolarFormer で市販曲から vocals を抽出します。歌声モデルには
+24 kHz stereo、96,000 samples（4秒）、50% overlapで入力し、完成したWAVは44.1 kHz stereoかつ
+instrumentalと同じ長さへ戻します。UNMIXXの匿名出力は左右チャンネルと隣接チャンクの相関で順を
+合わせます。SepACapの順序は `alto / bass / finger_snap / lead_vocal / soprano / tenor /
+vocal_percussion` 固定です。
 
-## FastAPI
+`singer-informed` も BS PolarFormerを前段に置きます。論文は混合曲を直接入力しますが、採用モデルは
+帯域16 kHz・3層LSTMの条件付きOpen-Unmixで、単体では伴奏が `target_vocal` へ大きく残ります。伴奏除去は
+BS PolarFormerに任せ、条件付きモデルには44.1 kHz monoの歌声だけを渡し、外した伴奏は最後に `residual`
+へ戻します。参照音声も同じ前段へ通して、伴奏なしの歌声で学習された clean embedding の条件へそろえます。
+論文どおり混合曲を直接入力して比較する場合は `SingerInformedConfig.cascade_vocal_extraction` を
+`False` にします。
 
-起動方法は次の2通りです。
+参照音声からは重複しない高エネルギー区間を `enrollment_segment_count` 個選び、32次元embeddingを平均して
+1フレーズの音高や母音へ条件付けが偏らないようにします。推定振幅はそのまま使わず、補完推定との比を
+ratio maskへ正規化してから適用します。`mask_exponent` がmaskの鋭さで、1.0は従来の直接出力と一致し、
+2.0（既定）はWiener相当、大きいほど伴奏優位のbinを強く抑えますが3.0を超えると musical noise が
+出やすくなります。`mask_floor` を 0.05 程度にすると、残った伴奏の薄い床をさらに落とせます。
+
+論文でduetのtarget SI-SDRが最良だった Concatenation + dual loss（λ=0.1）を採用しています。出力の
+`residual` には対象外の歌手と伴奏が残ります。論文の実証範囲は最大2人であり、3人以上の品質は未検証です。
+
+SepACapはステレオ4秒推論で約6.6 GiBを使うため、CUDAとBF16対応GPUが必須です。RTX 4070 Ti
+12 GBで検証しています。複数歌声モデルにCPU fallbackはありません。UNMIXXはFP16化による利点が
+確認できないためFP32のまま実行します。
+
+## モデル取得
+
+- BS PolarFormer: `bgkb/bs_polarformer` からHugging Face cacheへ取得。
+- SepACap: `Tino3141/sepacap` の固定revisionから設定とcheckpointを取得し、SHA-256を検証。
+- UNMIXX: 公式Hugging Face checkpointがないため、公式GitHubの固定commitに同梱された
+  `ckpt/best.ckpt` を使用し、SHA-256を検証。
+- Singer-Informed: [論文](https://arxiv.org/abs/2608.14516)の公開Google Driveから
+  Concatenation λ=0.1 と clean embedding をDocker build時に取得し、Docker `ADD --checksum` と
+  実行前検証の両方でSHA-256を固定。公開[研究コード](https://github.com/jocelynxu01/singer-separation-paper)
+  では学習scriptが参照する条件付きOpen-Unmix classが欠けているため、公開state dictと標準Open-Unmixの
+  層構成から互換モデルを局所実装し、`strict=True` で全parameterの一致を検証。
+
+UNMIXX、SepACap、Singer-Informedの研究成果物には再配布条件を確認できていないものがあります。
+SepACapのHugging Face checkpoint metadataはMITですが、現構成はローカルPoC用途に限定し、権利確認前に
+Docker imageや組み込みソースを公開しないでください。
+
+初回はモデルソースを固定commitでDocker imageへ取得します。
 
 ```bash
-uv run uvicorn main:app --host 0.0.0.0 --port 8000
-python main.py
+docker compose build backend
+docker compose up backend
 ```
 
-`POST /audios` は `multipart/form-data` で元音源を保存します。返された `audio_id` は、
-同じ音源を別設定で再度分離するときにも利用できます。
+SepACap重みとBS PolarFormerは `backend/.model-cache` に保持されます。Hugging Faceの制限を避ける
+場合は `backend/.env` に `HF_TOKEN=hf_...` を設定してください。
+
+## 非同期API
+
+音源をアップロードします。
 
 ```bash
-curl -X POST http://localhost:8000/audios \
-  -F 'uploadfile=@song.wav'
+curl -X POST http://localhost:8000/audios -F 'uploadfile=@song.wav'
 ```
 
-```json
-{
-  "audio_id": "audio123",
-  "original_url": "/audios/audio123/original"
-}
-```
-
-`POST /separations` は JSON で保存済みの `audio_id` と推論設定を受け取ります。処理は現在は
-同期実行で、完了後に `job_id` と stem URL を返します。
+返された `audio_id` を使ってジョブを作ります。レスポンスは `202 Accepted` です。
 
 ```bash
 curl -X POST http://localhost:8000/separations \
   -H 'Content-Type: application/json' \
-  -d '{"audio_id":"audio123","model_id":"bs-polarformer","num_vocals":2}'
+  -d '{"audio_id":"audio123","model_id":"unmixx","num_vocals":2}'
 ```
 
-レスポンスにはサーバー内部のファイルパスを含めず、Reactから取得できるAPI URLを返します。
+```json
+{
+  "job_id": "job123",
+  "status": "queued",
+  "status_url": "/separations/job123"
+}
+```
+
+`GET /separations/{job_id}` をポーリングします。状態は `queued / running / completed / failed`、
+段階は `queued / extracting_vocals / separating_singers / finalizing / completed / failed` です。
+完了時だけ `stems` にAPI URLが入ります。
+`extracting_vocals` の進捗率は、BS PolarFormerで完了したチャンク数から更新します。
 
 ```json
 {
   "job_id": "job123",
   "status": "completed",
+  "phase": "completed",
+  "progress_percent": 100,
   "stems": {
-    "vocals": "/separations/job123/stems/vocals",
+    "singer_1": "/separations/job123/stems/singer_1",
+    "singer_2": "/separations/job123/stems/singer_2",
     "instrumental": "/separations/job123/stems/instrumental"
-  }
+  },
+  "error": null
 }
 ```
 
-`GET /audios/{audio_id}/original` で元音源、
-`GET /separations/{job_id}/stems/{stem}` で分離済みWAVを取得できます。Reactでは
-`<audio src={original_url} controls />` や `<audio src={stems.vocals} controls />` のように利用します。
+人数指定はUNMIXXとBS PolarFormerで未指定または2、SepACapとSinger-Informedでは未指定だけを受理します。
+MedleyVoxは公開checkpointが2出力で3人以上の要件を満たさないため実装していません。
 
-保存先は次の構造です。`job_id` はモデル名を含まない不透明な ID で、使用した
-`model_id` は `metadata.json` にだけ記録します。
-
-```text
-audio/
-├── sources/{audio_id}/
-│   ├── original.wav
-│   └── metadata.json
-└── separations/{job_id}/
-    ├── metadata.json
-    └── stems/
-        ├── vocals.wav
-        └── instrumental.wav
-```
-
-現在の BS PolarFormer は2ステムモデルのため、`drums.wav` と `bass.wav` は生成しません。
-4ステムモデルを追加する場合は、モデル層の出力ステム定義も併せて変更します。
+Target singer extractionでは対象楽曲と参照音声を別々にアップロードし、両方のIDを指定します。
+参照音声は対象歌手だけが歌う3秒以上の音声を推奨します。別の曲を使用できますが、会話音声と3人以上の
+混合は論文の評価範囲外です。
 
 ```bash
-docker compose run --rm -v "$PWD:/workspace" backend \
-  python -m src.inference /workspace/song.mp3 --output-dir /workspace/output \
-  --cache-dir /app/.model-cache
+curl -X POST http://localhost:8000/audios -F 'uploadfile=@target-song.wav'
+curl -X POST http://localhost:8000/audios -F 'uploadfile=@reference.wav'
+curl -X POST http://localhost:8000/separations \
+  -H 'Content-Type: application/json' \
+  -d '{"audio_id":"song-id","reference_audio_id":"reference-id","model_id":"singer-informed"}'
 ```
 
-通常は CUDA を使い、GPU を使用できない環境では `--cpu` を付けてください。起動時の
-`ONNX Runtime providers: CUDAExecutionProvider, ...` で、実際に CUDA が選択されたことを確認できます。
-`--precision fp16` は公式の FP16 モデルをそのまま使うため、ローカル変換時の丸め warning は出ません。
-VRAM が足りない場合は、`--chunk-size 220500` のように小さくしてください（小さいほど VRAM は下がり、
-処理時間は増えます）。処理中は `tqdm` でチャンク単位の進捗と残り時間を表示します。
+ジョブはプロセス内 `ThreadPoolExecutor(max_workers=1)` で直列化しています。複数のUvicorn workerを
+起動するとGPUキューと状態が分裂するため、現在は1 workerだけで運用してください。起動時に前回の
+`queued / running` ジョブは `failed` へ回収され、途中成果物は公開されません。
 
-Hugging Face の未認証 warning を消してダウンロード上限を上げるには、`backend/.env` に
-`HF_TOKEN=hf_...` を設定してください。このトークンはリポジトリへコミットしないでください。
-ローカルに FP32 ONNX を配置済みなら、`--model-path /path/to/model.onnx` でダウンロードを省略できます。
-この場合の `--precision fp16` は互換性のためローカルで mixed FP16 へ変換します。
+## 検証
 
-Python からは以下の形で呼び出します。
-
-```python
-from inference import inference
-
-paths = inference(
-    "bs-polarformer",
-    {"input_path": "song.wav", "output_dir": "output", "precision": "fp16"},
-)
+```bash
+docker compose run --rm backend python -m unittest discover -s tests -v
+docker compose run --rm backend python -m compileall -q main.py src model_runtime
 ```
 
-テストは `docker compose run --rm backend python -m unittest discover -s tests -v` で実行できます。
+UNMIXX、SepACap、Singer-Informedの実checkpointはRTX 4070 Ti上でスモーク確認済みです。
+Singer-Informedは6秒の44.1 kHz入力で、全重みのstrict load、出力長、有限値、2ステム生成を確認しています。
