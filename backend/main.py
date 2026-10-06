@@ -10,7 +10,7 @@ from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
-from src.config import JOB_RUNTIME
+from src.config import JOB_RUNTIME, SINGER_INFORMED
 from src.inference import inference as run_inference
 from src.job_manager import JobManager
 from src.model_catalog import validate_model_request
@@ -49,6 +49,8 @@ class SeparationPayload(BaseModel):
     model_id: str
     num_vocals: int | None = None
     reference_audio_id: str | None = None
+    # λは学習時のdual loss重みで、条件ごとに別checkpointが公開されている。
+    conditioning_lambda: str | None = None
 
 
 def inference(*args: Any, **kwargs: Any) -> dict[str, str]:
@@ -99,6 +101,12 @@ async def separate_audio(payload: SeparationPayload) -> dict[str, Any]:
     if source_path is None:
         raise HTTPException(status_code=404, detail="元音源が見つかりません")
 
+    if payload.conditioning_lambda is not None:
+        try:
+            SINGER_INFORMED.checkpoint_for(payload.conditioning_lambda)
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+
     reference_path = None
     if model.requires_enrollment:
         if not payload.reference_audio_id:
@@ -117,6 +125,7 @@ async def separate_audio(payload: SeparationPayload) -> dict[str, Any]:
         reference_path=reference_path,
         model=model,
         num_vocals=payload.num_vocals,
+        conditioning_lambda=payload.conditioning_lambda,
         runner=inference,
     )
     return {

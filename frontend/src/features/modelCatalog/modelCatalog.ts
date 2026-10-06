@@ -135,3 +135,20 @@ export function modelRequiresEnrollment(modelId: string): boolean {
     .flat()
     .some((model) => model.id === modelId && model.requiresEnrollment === true)
 }
+
+// λは学習時のdual loss重みで、論文はConcatenation系の4条件をcheckpointとして公開しています。
+// 推論時に連続で動かせる値ではないため、重みの選択肢として扱います。
+export const conditioningLambdas = ['none', '0.05', '0.1', '0.2'] as const
+export type ConditioningLambda = (typeof conditioningLambdas)[number]
+export const defaultConditioningLambda: ConditioningLambda = '0.1'
+
+export const conditioningLambdaLabels: Record<ConditioningLambda, string> = {
+  none: 'なし',
+  '0.05': '0.05',
+  '0.1': '0.1（論文最良）',
+  '0.2': '0.2',
+}
+
+export function modelSupportsConditioningLambda(modelId: string): boolean {
+  return modelId === 'singer-informed'
+}

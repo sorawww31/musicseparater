@@ -51,6 +51,7 @@ export async function createSeparation(
   modelId: string,
   signal?: AbortSignal,
   referenceAudioId?: string,
+  conditioningLambda?: string,
 ): Promise<CreatedSeparation> {
   const numVocals = modelId === 'unmixx' ? 2 : undefined
   const response = await fetch(`${apiUrl}/separations`, {
@@ -61,6 +62,7 @@ export async function createSeparation(
       model_id: modelId,
       num_vocals: numVocals,
       reference_audio_id: referenceAudioId,
+      conditioning_lambda: conditioningLambda,
     }),
     signal,
   })

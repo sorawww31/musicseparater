@@ -40,6 +40,7 @@ class JobManager:
         runner: InferenceRunner,
         reference_audio_id: str | None = None,
         reference_path: Path | None = None,
+        conditioning_lambda: str | None = None,
     ) -> str:
         """queued metadata を先に保存してからGPU executorへ投入する。"""
         job_id = self.storage.new_id()
@@ -49,6 +50,7 @@ class JobManager:
             "job_id": job_id,
             "model_id": model.model_id,
             "num_vocals": num_vocals,
+            "conditioning_lambda": conditioning_lambda,
             "status": "queued",
             "phase": "queued",
             "progress_percent": 0,
@@ -116,6 +118,8 @@ class JobManager:
             }
             if metadata.get("reference_source"):
                 runner_metadata["enrollment_path"] = metadata["reference_source"]
+            if metadata.get("conditioning_lambda"):
+                runner_metadata["conditioning_lambda"] = metadata["conditioning_lambda"]
             raw_paths = runner(
                 model.model_id,
                 runner_metadata,
