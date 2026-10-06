@@ -9,7 +9,9 @@
 Google Colab で使用する場合は、先に GitHub から `music_separater.ipynb` をダウンロードします。
 
 1. [music_separater.ipynb の ページ](https://github.com/sorawww31/musicseparater/blob/master/music_separater.ipynb) を開きます。
-2. ファイル一覧の上にある **Download raw file**をクリックします。
+2. ファイル一覧の上にある **Download raw file** をクリックします。
+    
+    ![GitHub の Download raw file ボタン](download.png)
 3. [Google Colab](https://colab.research.google.com/) を開き、**ファイル → ノートブックをアップロード**を選択します。
 4. ダウンロードした `music_separater.ipynb` を選択して読み込みます。
 
