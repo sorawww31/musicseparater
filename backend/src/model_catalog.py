@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from .config import SEPACAP, SINGER_INFORMED, UNMIXX
+from .config import JACAPPELLA_DPTNET, MEDLEYVOX, SEPACAP, SINGER_INFORMED, UNMIXX
 
 
 @dataclass(frozen=True)
@@ -27,6 +27,15 @@ MODEL_CATALOG = {
     ),
     "sepacap": ModelDefinition(
         "sepacap", (*SEPACAP.stems, "instrumental"), (None,), multi_singer=True,
+    ),
+    "jacappella-dptnet": ModelDefinition(
+        "jacappella-dptnet",
+        (*JACAPPELLA_DPTNET.stems, "instrumental"),
+        (None,),
+        multi_singer=True,
+    ),
+    "medleyvox": ModelDefinition(
+        "medleyvox", (*MEDLEYVOX.stems, "instrumental"), (None, 2), multi_singer=True,
     ),
     "singer-informed": ModelDefinition(
         "singer-informed",

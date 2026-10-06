@@ -44,5 +44,25 @@ class SeparationRequestTests(unittest.TestCase):
             SeparationRequest.from_metadata({"input_path": "song.wav", "chunk_size": True})
 
 
+    def test_defaults_and_validates_conditioning_lambda(self) -> None:
+        """λ未指定は論文最良条件へ、未公開の条件は実行前に拒否する。"""
+        request = SeparationRequest.from_metadata({"input_path": "song.wav"})
+        self.assertEqual(request.conditioning_lambda, "0.1")
+
+        selected = SeparationRequest.from_metadata(
+            {"input_path": "song.wav", "conditioning_lambda": "none"},
+        )
+        self.assertEqual(selected.conditioning_lambda, "none")
+
+        with self.assertRaisesRegex(ValueError, "conditioning_lambda"):
+            SeparationRequest.from_metadata(
+                {"input_path": "song.wav", "conditioning_lambda": "0.5"},
+            )
+        with self.assertRaisesRegex(ValueError, "conditioning_lambda"):
+            SeparationRequest.from_metadata(
+                {"input_path": "song.wav", "conditioning_lambda": 0.1},
+            )
+
+
 if __name__ == "__main__":
     unittest.main()

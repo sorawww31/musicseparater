@@ -17,6 +17,14 @@ RUN uv venv --system-site-packages "$VIRTUAL_ENV"
 # 研究コードはライセンス確認が必要なため再配布せず、再現可能なcommitをbuild時に取得する。
 ADD https://github.com/jihoojung0106/unmixx.git#8e750521b5942f4717656cac86a23cf0bd90dea5 /opt/model-sources/unmixx
 ADD https://github.com/ETH-DISCO/SepACap.git#bb96b6c6ddd37bd9e2ace9e0a5b9080f186cbcc3 /opt/model-sources/sepacap
+# jaCappella DPTNet と MedleyVox はどちらも asteroid 0.6.1dev 系の実装を要求する。
+# asteroid-filterbanks は pip で入れると torch を再解決してベースイメージの CUDA 版を壊すため、
+# 他の研究コードと同じく固定commitのソースをimportパスへ足して使う。
+ADD https://github.com/TomohikoNakamura/asteroid_jaCappella.git#f208aa5552de87b085b10b97b3b2a803488c1511 /opt/model-sources/asteroid-jacappella
+ADD https://github.com/asteroid-team/asteroid-filterbanks.git#8a3d13fb0e495772bc9d1deac3327affe2833e10 /opt/model-sources/asteroid-filterbanks
+# 本家 jeonchangbin49/MedleyVox は svs/models/__init__.py が同梱されていない
+# discriminator を import するため実行できない。README が案内する fork を固定する。
+ADD https://github.com/CBeast25/MedleyVox.git#b2a63d426cd2bff6d13288ecbfa4a4c29de395e5 /opt/model-sources/medleyvox
 # 論文が公開するConcatenation系4条件とclean embeddingを固定hashで取得する。
 # λはdual lossの学習時重みで、重みごとに別checkpointとして配布されている。
 ADD --checksum=sha256:ec69648c9b1628bfb836072be2d66ad341fe23a87ad09934cc6e7edbb837b674 https://drive.usercontent.google.com/download?id=1Lw1oVqsFMr8QKaLEIA5Gx-KE1OaJI4-_&export=download&confirm=t /opt/model-checkpoints/singer-informed/concat-none/vocals.pth

@@ -92,6 +92,8 @@ async def separate_audio(payload: SeparationPayload) -> dict[str, Any]:
     """分離要求を検証して直列GPUキューへ登録する。"""
     try:
         model = validate_model_request(payload.model_id, payload.num_vocals)
+        if payload.conditioning_lambda is not None:
+            SINGER_INFORMED.checkpoint_for(payload.conditioning_lambda)
     except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
     try:
@@ -100,12 +102,6 @@ async def separate_audio(payload: SeparationPayload) -> dict[str, Any]:
         raise HTTPException(status_code=404, detail="元音源が見つかりません") from error
     if source_path is None:
         raise HTTPException(status_code=404, detail="元音源が見つかりません")
-
-    if payload.conditioning_lambda is not None:
-        try:
-            SINGER_INFORMED.checkpoint_for(payload.conditioning_lambda)
-        except ValueError as error:
-            raise HTTPException(status_code=422, detail=str(error)) from error
 
     reference_path = None
     if model.requires_enrollment:

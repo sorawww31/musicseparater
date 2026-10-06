@@ -9,8 +9,20 @@ from typing import Any
 
 import numpy as np
 
-from .audio import normalize_stereo, select_enrollment_segments, separate_long_audio
-from .loaders import load_sepacap, load_singer_informed, load_unmixx
+from .audio import (
+    loudness_normalization_gain,
+    normalize_stereo,
+    rescale_estimates_to_mixture,
+    select_enrollment_segments,
+    separate_long_audio,
+)
+from .loaders import (
+    load_jacappella_dptnet,
+    load_medleyvox,
+    load_sepacap,
+    load_singer_informed,
+    load_unmixx,
+)
 
 
 def _unmixx_predictor(model: Any, device: Any) -> Any:
@@ -44,6 +56,24 @@ def _sepacap_predictor(model: Any, device: Any, source_count: int) -> Any:
         separated, _ = model.separator(projected)
         masked = model.out_layer(separated, encoded)
         estimates = torch.stack([model.audio_decoder(masked[index]) for index in range(source_count)])
+        return estimates[..., : chunk.shape[-1]].float().cpu().numpy()
+
+    return predict
+
+
+def _monaural_predictor(model: Any, device: Any, source_count: int) -> Any:
+    """mono学習のモデルを左右で個別に通し `(sources, channels, samples)` へ積む。"""
+    import torch
+
+    @torch.inference_mode()
+    def predict(chunk: np.ndarray) -> np.ndarray:
+        tensor = torch.from_numpy(chunk).to(device=device, dtype=torch.float32)
+        estimates = torch.stack(
+            [model(tensor[index:index + 1].unsqueeze(1))[0] for index in range(tensor.shape[0])],
+            dim=1,
+        )
+        if estimates.shape[0] != source_count:
+            raise RuntimeError(f"モデル出力の source 数が設定と一致しません: {estimates.shape[0]}")
         return estimates[..., : chunk.shape[-1]].float().cpu().numpy()
 
     return predict
@@ -165,6 +195,10 @@ def run(settings_path: Path) -> None:
     if model_id == "singer-informed":
         _run_singer_informed(settings, device)
         return
+    source_count = len(model_settings["stems"])
+    # 匿名singerのモデルだけ左右とチャンク境界で出力順をそろえる。声部名が決まっている
+    # モデルは index と stem の対応が固定なので、並べ替えてはならない。
+    rescale_to_mixture = False
     if model_id == "unmixx":
         model = load_unmixx(model_settings, device)
         predictor = _unmixx_predictor(model, device)
@@ -173,23 +207,48 @@ def run(settings_path: Path) -> None:
         if not torch.cuda.is_bf16_supported():
             raise RuntimeError("SepACap には BF16 対応 CUDA GPU が必要です")
         model = load_sepacap(model_settings, device)
-        predictor = _sepacap_predictor(model, device, len(model_settings["stems"]))
+        predictor = _sepacap_predictor(model, device, source_count)
         align_anonymous_sources = False
+    elif model_id == "jacappella-dptnet":
+        model = load_jacappella_dptnet(model_settings, device)
+        predictor = _monaural_predictor(model, device, source_count)
+        align_anonymous_sources = False
+        # sigmoid maskの直接出力は混合より十数倍小さい。公式 separate.py の既定と同じく
+        # 最小二乗で利得を戻さないと、ブラウザ再生でほぼ無音になる。
+        rescale_to_mixture = True
+    elif model_id == "medleyvox":
+        model = load_medleyvox(model_settings, device)
+        predictor = _monaural_predictor(model, device, source_count)
+        # duetモデルなので2出力に歌手の割り当てがなく、UNMIXXと同じ整列が必要。
+        align_anonymous_sources = True
     else:
         raise ValueError(f"未対応の子プロセスモデルです: {model_id}")
 
     waveform, _ = librosa.load(settings["input_path"], sr=settings["sample_rate"], mono=False)
     audio = normalize_stereo(waveform)
+    # ラウドネス前提があるモデルは、全長で一度だけ利得を決めてから分割推論へ渡す。
+    input_gain = 1.0
+    if "target_lufs" in model_settings:
+        input_gain = loudness_normalization_gain(
+            audio, settings["sample_rate"], model_settings["target_lufs"],
+        )
+        audio = audio * input_gain
     estimates = separate_long_audio(
         audio,
         predictor,
-        source_count=len(model_settings["stems"]),
+        source_count=source_count,
         chunk_size=settings["chunk_size"],
         hop_size=settings["hop_size"],
         align_anonymous_sources=align_anonymous_sources,
         epsilon=settings["silence_epsilon"],
         progress=lambda completed, total: print(f"PROGRESS {completed} {total}", flush=True),
     )
+    if rescale_to_mixture:
+        # チャンクごとに解くと利得が段差になるため、合成後の全長に対して一度だけ解く。
+        estimates = rescale_estimates_to_mixture(estimates, audio, settings["silence_epsilon"])
+    if input_gain != 1.0:
+        # 入力へかけた利得を戻し、元の音量のステムとして書き出す。
+        estimates = estimates / input_gain
     output_directory = Path(settings["output_directory"])
     output_directory.mkdir(parents=True, exist_ok=True)
     for index, stem in enumerate(model_settings["stems"]):

@@ -11,6 +11,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from model_runtime.audio import (  # noqa: E402
     align_stereo_sources,
     chunk_starts,
+    loudness_normalization_gain,
+    rescale_estimates_to_mixture,
     select_enrollment_segment,
     select_enrollment_segments,
     separate_long_audio,
@@ -122,6 +124,48 @@ class MultiSingerAudioTests(unittest.TestCase):
                 epsilon=1e-8,
                 segment_count=3,
             )
+
+    def test_mixture_rescaling_recovers_the_original_stem_gains(self) -> None:
+        """jaCappella DPTNet の痩せた出力を、混合に合う音量へ戻す。"""
+        first = np.array([[1.0, 0.0, -1.0, 0.5], [0.5, -0.5, 0.25, 0.0]], dtype=np.float32)
+        second = np.array([[0.0, 1.0, 0.5, -0.5], [-0.25, 0.5, 0.0, 1.0]], dtype=np.float32)
+        mixture = 3.0 * first + 7.0 * second
+        # 推論結果が一律に小さい状況を作り、利得だけが復元されることを確かめる。
+        estimates = np.stack((first * 0.05, second * 0.05))
+
+        rescaled = rescale_estimates_to_mixture(estimates, mixture, 1e-8)
+
+        np.testing.assert_allclose(rescaled[0], 3.0 * first, atol=1e-5)
+        np.testing.assert_allclose(rescaled[1], 7.0 * second, atol=1e-5)
+        np.testing.assert_allclose(rescaled.sum(axis=0), mixture, atol=1e-5)
+
+    def test_mixture_rescaling_leaves_silent_channels_untouched(self) -> None:
+        """全ステムが無音のチャンネルでは利得が決まらず、値を変えない。"""
+        estimates = np.zeros((2, 2, 4), dtype=np.float32)
+        estimates[0, 1] = np.array([0.5, -0.5, 0.5, -0.5], dtype=np.float32)
+        mixture = np.zeros((2, 4), dtype=np.float32)
+        mixture[1] = estimates[0, 1]
+
+        rescaled = rescale_estimates_to_mixture(estimates, mixture, 1e-8)
+
+        np.testing.assert_array_equal(rescaled[:, 0], estimates[:, 0])
+        np.testing.assert_allclose(rescaled[0, 1], estimates[0, 1], atol=1e-5)
+
+    def test_loudness_gain_matches_the_target_and_skips_unmeasurable_input(self) -> None:
+        """MedleyVox の前提である目標ラウドネスへ合わせ、測れない入力は等倍で通す。"""
+        sample_rate = 24_000
+        noise = np.random.default_rng(0).normal(0.0, 0.2, (2, sample_rate * 3)).astype(np.float32)
+
+        gain = loudness_normalization_gain(noise, sample_rate, -24.0)
+        adjusted = loudness_normalization_gain(noise * gain, sample_rate, -24.0)
+
+        # 正規化後は追加の利得が不要になる（1倍へ収束する）。
+        self.assertAlmostEqual(adjusted, 1.0, places=3)
+        self.assertEqual(loudness_normalization_gain(noise[:, :100], sample_rate, -24.0), 1.0)
+        self.assertEqual(
+            loudness_normalization_gain(np.zeros((2, sample_rate), dtype=np.float32), sample_rate, -24.0),
+            1.0,
+        )
 
 
 if __name__ == "__main__":

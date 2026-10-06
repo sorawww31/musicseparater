@@ -116,6 +116,44 @@ class SingerInformedPipelineTests(unittest.TestCase):
             output_paths["target_vocal"], str(self.request.output_dir / "target_vocal.wav"),
         )
 
+    def test_selected_lambda_picks_the_matching_checkpoint(self) -> None:
+        """λごとに公開されている別checkpointへ切り替える。"""
+        request = replace(self.request, conditioning_lambda="0.2")
+        expected = SINGER_INFORMED.checkpoint_for("0.2")
+        with (
+            patch.object(singer_informed, "SINGER_INFORMED", replace(
+                SINGER_INFORMED, cascade_vocal_extraction=False,
+            )),
+            patch.object(singer_informed, "run_model_process"),
+        ):
+            singer_informed.separate_target_singer(
+                request, self._extract_vocals, lambda _phase, _percent: None,
+            )
+
+        model = self._written_settings()["model"]
+        self.assertEqual(model["conditioning_lambda"], "0.2")
+        self.assertEqual(model["checkpoint_path"], str(expected.path))
+        self.assertEqual(model["checkpoint_sha256"], expected.sha256)
+        # 全λで同じアーキテクチャなので、embeddingは共通のものを使う。
+        self.assertEqual(
+            model["embedding_checkpoint_path"],
+            str(SINGER_INFORMED.embedding_checkpoint_path),
+        )
+
+    def test_published_lambdas_have_distinct_verified_checkpoints(self) -> None:
+        """4条件が別の重みを指し、UIの選択肢と一致することを守る。"""
+        self.assertEqual(SINGER_INFORMED.conditioning_lambdas, ("none", "0.05", "0.1", "0.2"))
+        hashes = {c.sha256 for c in SINGER_INFORMED.checkpoints}
+        paths = {c.path for c in SINGER_INFORMED.checkpoints}
+        self.assertEqual(len(hashes), 4)
+        self.assertEqual(len(paths), 4)
+        self.assertEqual(
+            SINGER_INFORMED.checkpoint_for(None).conditioning_lambda,
+            SINGER_INFORMED.default_conditioning_lambda,
+        )
+        with self.assertRaisesRegex(ValueError, "conditioning_lambda"):
+            SINGER_INFORMED.checkpoint_for("0.5")
+
     def test_mask_tuning_reaches_the_child_process(self) -> None:
         """maskと平均embeddingの調整値は子プロセスへそのまま渡す。"""
         tuned = replace(

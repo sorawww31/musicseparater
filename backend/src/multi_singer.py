@@ -12,7 +12,9 @@ import numpy as np
 from .audio_files import load_audio, stereo_at_length, write_stems
 from .config import (
     BS_POLARFORMER,
+    JACAPPELLA_DPTNET,
     JOB_RUNTIME,
+    MEDLEYVOX,
     MULTI_SINGER_AUDIO,
     SEPACAP,
     SEPARATION_RUNTIME,
@@ -24,15 +26,25 @@ from .separation_request import SeparationRequest
 JobProgress = Callable[[str, int], None]
 ExtractVocals = Callable[[Path, Path, Callable[[int, int], None]], dict[str, str]]
 
+# 周波数と分割長は学習条件ごとに違うため、モデル設定そのものから引く。
+_MULTI_SINGER_MODELS: dict[str, Any] = {
+    "unmixx": UNMIXX,
+    "sepacap": SEPACAP,
+    "jacappella-dptnet": JACAPPELLA_DPTNET,
+    "medleyvox": MEDLEYVOX,
+}
+
+def _model_config(model_id: str) -> Any:
+    """model_id に対応する固定設定を返し、未対応は推論前に拒否する。"""
+    model = _MULTI_SINGER_MODELS.get(model_id)
+    if model is None:
+        raise ValueError(f"未対応の複数歌声モデルです: {model_id}")
+    return model
+
 
 def _model_settings(model_id: str) -> dict[str, Any]:
     """子プロセスへ渡す JSON 化可能な固定設定を返す。"""
-    if model_id == "unmixx":
-        model = UNMIXX
-    elif model_id == "sepacap":
-        model = SEPACAP
-    else:
-        raise ValueError(f"未対応の複数歌声モデルです: {model_id}")
+    model = _model_config(model_id)
     settings: dict[str, Any] = {
         "repo_id": model.repo_id,
         "revision": model.revision,
@@ -42,11 +54,20 @@ def _model_settings(model_id: str) -> dict[str, Any]:
         "precision": model.precision,
         "stems": list(model.stems),
     }
-    if model_id == "sepacap":
-        settings["config_filename"] = SEPACAP.config_filename
+    if model_id in ("sepacap", "medleyvox"):
+        # 構成ファイルが重みと同じ配布物に入っているため、重みと同じ revision で取る。
+        settings["config_filename"] = model.config_filename
+    if model_id in ("sepacap", "jacappella-dptnet", "medleyvox"):
+        # UNMIXX 以外は重みを実行時に Hugging Face から取得する。
         settings["cache_dir"] = SEPARATION_RUNTIME.cache_dir or str(
             BS_POLARFORMER.model_cache_directory,
         )
+    if model_id in ("jacappella-dptnet", "medleyvox"):
+        # asteroid の encoder/decoder 実装は別リポジトリにある。
+        settings["filterbank_directory"] = str(model.filterbank_directory)
+    if model_id == "medleyvox":
+        settings["asteroid_directory"] = str(model.asteroid_directory)
+        settings["target_lufs"] = model.target_lufs
     return settings
 
 
@@ -54,13 +75,14 @@ def _runner_settings(
     model_id: str, input_path: Path, output_directory: Path,
 ) -> dict[str, Any]:
     """周波数・チャンク・精度を親側の設定から明示する。"""
+    model = _model_config(model_id)
     return {
         "model_id": model_id,
         "input_path": str(input_path),
         "output_directory": str(output_directory),
-        "sample_rate": MULTI_SINGER_AUDIO.sample_rate,
-        "chunk_size": MULTI_SINGER_AUDIO.chunk_size,
-        "hop_size": MULTI_SINGER_AUDIO.hop_size,
+        "sample_rate": model.sample_rate,
+        "chunk_size": model.chunk_size,
+        "hop_size": model.hop_size,
         "silence_epsilon": MULTI_SINGER_AUDIO.silence_epsilon,
         "cuda_device_id": BS_POLARFORMER.cuda_device_id,
         "model": _model_settings(model_id),
@@ -76,7 +98,7 @@ def separate_multi_singer(
     """BS PolarFormer → singer model → 44.1 kHz成果物の順で処理する。"""
     work_directory = request.output_dir.parent / "work"
     bs_directory = work_directory / "bs"
-    child_directory = work_directory / "singers-24k"
+    child_directory = work_directory / "singers"
     work_directory.mkdir(parents=True, exist_ok=True)
     progress("extracting_vocals", 0)
     first_stage = extract_vocals(

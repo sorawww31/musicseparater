@@ -79,10 +79,7 @@ class AudioStorageConfig:
 class MultiSingerAudioConfig:
     """複数歌声モデルに共通する音声と長尺処理の固定値。"""
 
-    sample_rate: int = 24_000
     channels: int = 2
-    chunk_size: int = 96_000
-    hop_size: int = 48_000
     silence_epsilon: float = 1e-8
 
 
@@ -96,6 +93,9 @@ class UNMIXXConfig:
     checkpoint_filename: str = "ckpt/best.ckpt"
     checkpoint_sha256: str = "edd8bd0782f85ebb8a6b26bec47808b3130d15c2ccd49c741d2ff5983cb6c359"
     precision: str = "fp32"
+    sample_rate: int = 24_000
+    chunk_size: int = 96_000
+    hop_size: int = 48_000
     stems: tuple[str, ...] = ("singer_1", "singer_2")
 
 
@@ -110,9 +110,63 @@ class SepACapConfig:
     config_filename: str = "modelMusicSep.yaml"
     checkpoint_sha256: str = "423b2c7225dfe7b14e7370a651959c09aaa3301f60483b5548686341b2eacc43"
     precision: str = "bf16"
+    sample_rate: int = 24_000
+    chunk_size: int = 96_000
+    hop_size: int = 48_000
     stems: tuple[str, ...] = (
         "alto", "bass", "finger_snap", "lead_vocal", "soprano", "tenor", "vocal_percussion",
     )
+
+
+@dataclass(frozen=True)
+class JaCappellaDPTNetConfig:
+    """jaCappella 公式 DPTNet の重みと声部順を固定 revision へ固定する。"""
+
+    repo_id: str = "jaCappella/DPTNet_jaCappella_VES_48k"
+    revision: str = "00e6e6207007fdc87f465e2a823872ee87a4c351"
+    # 公式の学習コードは asteroid の fork。モデル本体は upstream 0.6.1dev と同一で、
+    # 差分は jaCappella 用 dataset と parser だけなので MedleyVox とソースを共有する。
+    source_directory: Path = Path("/opt/model-sources/asteroid-jacappella")
+    filterbank_directory: Path = Path("/opt/model-sources/asteroid-filterbanks")
+    checkpoint_filename: str = "best_model.pth"
+    checkpoint_sha256: str = "2d0738ae01145bdf074e8e3a2312f1a21ff2e0c96f2a4f42b1cd0d2c7f4780ac"
+    precision: str = "fp32"
+    sample_rate: int = 48_000
+    # 学習時の seq_dur 5.046 秒とちょうど同じ 242,208 サンプルで推論し、半分を重ねる。
+    chunk_size: int = 242_208
+    hop_size: int = 121_104
+    # conf.yml の data.sources と同じ並び。出力indexと声部の対応はこの順序でしか正しくない。
+    stems: tuple[str, ...] = (
+        "vocal_percussion", "bass", "alto", "tenor", "soprano", "lead_vocal",
+    )
+
+
+@dataclass(frozen=True)
+class MedleyVoxConfig:
+    """非公式の再学習 checkpoint と、その vocals.json が持つ構成を固定する。"""
+
+    # 著者は重みを公開しておらず、これは cc-by-4.0 で配布された第三者の再学習版。
+    repo_id: str = "Cyru5/MedleyVox"
+    revision: str = "5c9e4e0d909e5a006c992b3422901ed416f4e57f"
+    source_directory: Path = Path("/opt/model-sources/medleyvox")
+    # upstream は asteroid==0.6.1dev を要求する。jaCappella fork の asteroid 本体が
+    # まさにその版なので、同じソースを使い回す。
+    asteroid_directory: Path = Path("/opt/model-sources/asteroid-jacappella")
+    filterbank_directory: Path = Path("/opt/model-sources/asteroid-filterbanks")
+    # 同リポジトリの中で学習が最も進んだ iSRNet 付き fine-tuning 版を使う。
+    checkpoint_filename: str = "singing_librispeech_ft_iSRNet/vocals.pth"
+    config_filename: str = "singing_librispeech_ft_iSRNet/vocals.json"
+    checkpoint_sha256: str = "a46b206f4185cd01639cb7ce791a4d50bae2833b02483e6e3de85bc03938e820"
+    precision: str = "fp32"
+    sample_rate: int = 24_000
+    # 学習時の seq_dur 3.0 秒に合わせ、72,000 サンプル単位で半分を重ねる。
+    chunk_size: int = 72_000
+    hop_size: int = 36_000
+    # 公式 inference と同じ入力ラウドネス。商用ミックスの音量をそのまま入れると
+    # 出力が実測で1/5まで痩せるため、正規化してから推論し、出力で利得を戻す。
+    target_lufs: float = -24.0
+    # n_src=2 固定のduetモデル。3人以上は分けられず、どちらが誰かも決まらない。
+    stems: tuple[str, ...] = ("singer_1", "singer_2")
 
 
 @dataclass(frozen=True)
@@ -230,5 +284,7 @@ AUDIO_STORAGE = AudioStorageConfig()
 MULTI_SINGER_AUDIO = MultiSingerAudioConfig()
 UNMIXX = UNMIXXConfig()
 SEPACAP = SepACapConfig()
+JACAPPELLA_DPTNET = JaCappellaDPTNetConfig()
+MEDLEYVOX = MedleyVoxConfig()
 SINGER_INFORMED = SingerInformedConfig()
 JOB_RUNTIME = JobRuntimeConfig()

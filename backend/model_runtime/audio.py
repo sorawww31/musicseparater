@@ -137,6 +137,46 @@ def align_chunk_sources(
     return current[::-1].copy() if swapped > direct else current
 
 
+def loudness_normalization_gain(
+    audio: np.ndarray, sample_rate: int, target_lufs: float,
+) -> float:
+    """統合ラウドネスを目標値へ合わせる線形利得を返す。"""
+    import pyloudnorm
+
+    # 公式 inference は mono 入力を測って正規化するので、同じ条件になる downmix で測る。
+    # 利得は左右へ同じ値をかけ、ステレオの定位を変えない。
+    downmix = np.asarray(audio, dtype=np.float32).mean(axis=0)
+    block_seconds = 0.400
+    if downmix.size < round(sample_rate * block_seconds):
+        # 1ブロックに満たない入力はラウドネスを測れないため、そのまま通す。
+        return 1.0
+    meter = pyloudnorm.Meter(sample_rate, block_size=block_seconds)
+    loudness = float(meter.integrated_loudness(downmix))
+    if not np.isfinite(loudness):
+        # 無音では -inf になる。公式も同じ条件で正規化を飛ばしている。
+        return 1.0
+    return float(10.0 ** ((target_lufs - loudness) / 20.0))
+
+
+def rescale_estimates_to_mixture(
+    estimates: np.ndarray, mixture: np.ndarray, epsilon: float,
+) -> np.ndarray:
+    """各ステムの利得を最小二乗で混合へ合わせる、jaCappella公式の既定後処理。"""
+    rescaled = np.empty_like(estimates)
+    for channel in range(estimates.shape[1]):
+        basis = estimates[:, channel, :].T
+        # 全長ぶんのlstsqは数百MBになるため、同値なステム数ぶんの正規方程式をfloat64で解く。
+        gram = np.einsum("ts,tu->su", basis, basis, dtype=np.float64)
+        projection = np.einsum("ts,t->s", basis, mixture[channel], dtype=np.float64)
+        if float(np.trace(gram)) <= epsilon:
+            # 全ステムが無音のチャンネルでは利得が決まらないので、そのまま返す。
+            rescaled[:, channel, :] = estimates[:, channel, :]
+            continue
+        gains = np.linalg.lstsq(gram, projection, rcond=None)[0]
+        rescaled[:, channel, :] = (basis * gains.astype(np.float32)).T
+    return rescaled
+
+
 def separate_long_audio(
     audio: np.ndarray,
     predict: Callable[[np.ndarray], np.ndarray],

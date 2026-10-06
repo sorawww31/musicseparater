@@ -14,6 +14,7 @@ dependencies = [
     "onnxconverter-common>=1.16.0,<1.17.0",
     # 1.27 以降は CUDA 13 ビルド。ベースイメージの CUDA 12.6 / cuDNN 9 と合わせる。
     "onnxruntime-gpu>=1.23.0,<1.27.0",
+    "pyloudnorm>=0.1.1,<0.2.0",
     "python-multipart>=0.0.32",
     "pyyaml>=6.0.2,<7.0.0",
     "soundfile>=0.13.0",
