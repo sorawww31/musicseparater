@@ -1,143 +1,108 @@
-import { useState } from 'react'
+// frontend/src/components/SeparationSettings.tsx
+// モード・方式・実行可能モデルを選び、人数はモデル契約から固定します。
 import {
   type SeparationMode,
+  type MultiSingerStrategy,
+  modelsForSelection,
   separationModes,
-  modelsByMode,
-} from '../features/modelCatalog/modelCatalog'
+} from '../features/modelCatalog/modelCatalog.ts'
 
-
-type SeparationModeSelectorProps = {
-  selectedMode: SeparationMode
-  onModeChange: (mode: SeparationMode) => void
-}
-function SeparationModeSelector({ selectedMode, onModeChange }: SeparationModeSelectorProps) {
-    
-    return (
-    <div>
-      <h3>分離タイプ</h3>
-
-      <div style={{ display: 'flex', gap: '16px' }}>
-        {separationModes.map((mode) => (
-          <label key={mode}>
-            <input
-              type="radio"
-              name="separation-mode"
-              value={mode}
-              checked={selectedMode === mode}
-              onChange={() => onModeChange(mode)}
-            />
-
-            {mode}
-          </label>
-        ))}
-      </div>
-
-      <p>Selected: {selectedMode}</p>
-    </div>
-  )
+const modeLabels: Record<SeparationMode, string> = {
+  '2stem': '2ステム',
+  '4stem': '4ステム',
+  '6stem': '6ステム',
+  'multi-singer': '複数歌声',
 }
 
-type SeparationModelSelectorProps = {
+const strategyLabels: Record<MultiSingerStrategy, string> = {
+  blind: 'Blind separation',
+  target: 'Target singer extraction',
+}
+
+type SeparationSettingsProps = {
   selectedMode: SeparationMode
+  selectedStrategy: MultiSingerStrategy
   selectedModel: string
-  setSelectedModel: React.Dispatch<React.SetStateAction<string>>
+  onModeChange: (mode: SeparationMode) => void
+  onStrategyChange: (strategy: MultiSingerStrategy) => void
+  onModelChange: (modelId: string) => void
+  disabled: boolean
 }
 
+export function SeparationSettings({
+  selectedMode,
+  selectedStrategy,
+  selectedModel,
+  onModeChange,
+  onStrategyChange,
+  onModelChange,
+  disabled,
+}: SeparationSettingsProps) {
+  const modelOptions = modelsForSelection(selectedMode, selectedStrategy)
 
-function SeparationModelSelector({ selectedMode, selectedModel, setSelectedModel }: SeparationModelSelectorProps) {
   return (
-    <div>
-      <h3>分離モデル</h3>
-
-      <div>
-        {/* mapで4個のボタンを並べてる */}
-        {modelsByMode[selectedMode].map((model) => (
-            <label key={model.id}>
-            <input
-              type="radio"
-              name="separation-model"
-              value={model.name}
-              checked={selectedModel === model.id}
-              onChange={() => setSelectedModel(model.id)}
-            />
-
-            {model.name}
-          </label>
-        )
-        )}
-      </div>
-
-      <p>Selected: {selectedModel}</p>
-    </div>  
-    )
-}
-
-type SingerCountSelectorProps = {
-  selectedMode: SeparationMode
-  singerCount: number | string
-  setSingerCount: React.Dispatch<React.SetStateAction<number | string>>
-}
-
-function SingerCountSelector({ selectedMode, singerCount, setSingerCount }: SingerCountSelectorProps) {
-    const labels = [2, 3, 4, 5, 'auto']
-    const displayedSingerCount =
-            selectedMode === 'multi-singer'
-            ? singerCount
-            : 'not multi-singer mode'
-    
-    return (
-    <div>
-        <h3>vocal人数</h3>
-
-        <div style={{ display: 'flex', gap: '16px' }}>
-            {labels.map((label) => (
-                <label key={label}>
-                    <input
-                        type="radio"
-                        name="singer-count"
-                        value={label}
-                        checked={singerCount === label && selectedMode === 'multi-singer'}
-                        onChange={() => setSingerCount(label)}
-                    />
-                    {label}
-                </label>
-            ))}
-        </div>
-
-        <p>Selected: {displayedSingerCount}</p>
-    </div>
-    )
-}
-
-export function SeparationSettings() {
-    const [selectedMode, setSelectedMode] = useState<SeparationMode>('2stem');
-    const [selectedModel, setSelectedModel] = useState<string>(modelsByMode[selectedMode][0].id);
-    const [singerCount, setSingerCount] = useState<number | string>("not multi-singer mode");
-    
-    function handleModeChange(mode: SeparationMode) {
-        setSelectedMode(mode)
-        setSelectedModel(modelsByMode[mode][0].id)
-    }
-    return (
-    
-    <section>
+    <section className="panel settings">
       <h2>分離設定</h2>
-      <SeparationModeSelector 
-        selectedMode={selectedMode}
-        onModeChange={handleModeChange}
-      />
-      <SeparationModelSelector
-        selectedMode={selectedMode}
-        selectedModel={selectedModel}
-        setSelectedModel={setSelectedModel}
-      />
-      
-    <SingerCountSelector
-        selectedMode={selectedMode}
-        singerCount={singerCount}
-        setSingerCount={setSingerCount}
-    />
-      
+      <fieldset disabled={disabled}>
+        <legend>分離タイプ</legend>
+        <div className="option-grid mode-options">
+          {separationModes.map((mode) => (
+            <label key={mode} className="option-card">
+              <input
+                type="radio"
+                name="separation-mode"
+                checked={selectedMode === mode}
+                onChange={() => onModeChange(mode)}
+              />
+              {modeLabels[mode]}
+            </label>
+          ))}
+        </div>
+      </fieldset>
+
+      {selectedMode === 'multi-singer' && (
+        <fieldset disabled={disabled}>
+          <legend>方式</legend>
+          <div className="option-grid strategy-options">
+            {(Object.keys(strategyLabels) as MultiSingerStrategy[]).map((strategy) => (
+              <label key={strategy} className="option-card">
+                <input
+                  type="radio"
+                  name="multi-singer-strategy"
+                  checked={selectedStrategy === strategy}
+                  onChange={() => onStrategyChange(strategy)}
+                />
+                {strategyLabels[strategy]}
+              </label>
+            ))}
+          </div>
+        </fieldset>
+      )}
+
+      <fieldset disabled={disabled}>
+        <legend>モデル</legend>
+        <div className="option-grid model-options">
+          {modelOptions.map((model) => (
+            <label
+              key={model.id}
+              className={`option-card model-card ${model.availability === 'planned' ? 'planned' : ''}`}
+            >
+              <input
+                type="radio"
+                name="separation-model"
+                checked={selectedModel === model.id}
+                disabled={model.availability === 'planned'}
+                onChange={() => onModelChange(model.id)}
+              />
+              <span>
+                <strong>{model.name}</strong>
+                {model.availability === 'planned' && <small>未実装</small>}
+                <span>{model.description}</span>
+              </span>
+            </label>
+          ))}
+        </div>
+      </fieldset>
     </section>
-    )
+  )
 }

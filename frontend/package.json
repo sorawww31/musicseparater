@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
-    "test": "node --test src/features/modelCatalog/modelCatalog.test.mjs",
+    "test": "node --test src/config.test.mjs src/features/modelCatalog/modelCatalog.test.mjs",
     "preview": "vite preview"
   },
   "dependencies": {

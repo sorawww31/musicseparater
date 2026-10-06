@@ -1,14 +1,17 @@
 // frontend/src/features/modelCatalog/modelCatalog.ts
-// 分離モードごとの候補モデルを保持するデータモジュールです。
-// 現在の画面には未表示ですが、分離前 App.tsx にあった一覧を保持します。
+// 実装済みモデルと将来候補を区別し、UIから未実装APIを呼ばないための一覧です。
 export type SeparationMode = '2stem' | '4stem' | '6stem' | 'multi-singer'
+export type MultiSingerStrategy = 'blind' | 'target'
 
-type ModelOption = {
+export type ModelOption = {
   id: string
   name: string
   stems: string[]
-  hfRepo: string
+  source: string
   description: string
+  availability: 'available' | 'planned'
+  strategy?: MultiSingerStrategy
+  requiresEnrollment?: boolean
 }
 
 export const modelsByMode: Record<SeparationMode, ModelOption[]> = {
@@ -17,92 +20,118 @@ export const modelsByMode: Record<SeparationMode, ModelOption[]> = {
       id: 'bs-polarformer',
       name: 'BS PolarFormer',
       stems: ['vocals', 'instrumental'],
-      hfRepo: 'bgkb/bs_polarformer',
-      description:
-        '高品質なボーカル分離モデル。Multisong DatasetでVocal SDR 11.00 dB。51Mパラメータと比較的軽量で、ボーカル抽出の第一候補。',
+      source: 'bgkb/bs_polarformer',
+      description: '44.1 kHzでボーカルと伴奏を分離します。',
+      availability: 'available',
     },
     {
       id: 'melband-roformer-kim',
       name: 'Mel-Band RoFormer (Kim)',
       stems: ['vocals', 'instrumental'],
-      hfRepo: 'AEmotionStudio/roformer-models',
-      description:
-        'Mel周波数帯を利用する高性能RoFormer。Multisong DatasetでVocal SDR 10.98 dB。BS PolarFormerとほぼ同水準の高品質なボーカル分離。',
+      source: 'AEmotionStudio/roformer-models',
+      description: '高品質なRoFormer系モデル。現在は実装予定です。',
+      availability: 'planned',
     },
     {
       id: 'bs-roformer-viperx',
       name: 'BS-RoFormer (ViperX)',
       stems: ['vocals', 'instrumental'],
-      hfRepo: 'AEmotionStudio/roformer-models',
-      description:
-        '定番の高性能RoFormer系モデル。Multisong DatasetではVocal SDR 10.87 dB。高品質なボーカル/伴奏分離に向く。',
+      source: 'AEmotionStudio/roformer-models',
+      description: '定番のRoFormer系モデル。現在は実装予定です。',
+      availability: 'planned',
     },
   ],
-
   '4stem': [
     {
       id: 'scnet-xl-ihf',
       name: 'SCNet XL IHF',
       stems: ['vocals', 'drums', 'bass', 'other'],
-      hfRepo: 'noblebarkrr/mvsepless_resources',
-      description:
-        '4-stem分離の高性能モデル。MUSDB18HQ testで平均SDR 10.08 dB。特にdrums 11.81 dB、vocals 11.42 dBと強く、4-stemの第一候補。',
-    },
-    {
-      id: 'bs-roformer-4stem',
-      name: 'BS-RoFormer 4 Stem',
-      stems: ['vocals', 'drums', 'bass', 'other'],
-      hfRepo: 'AEmotionStudio/roformer-models',
-      description:
-        'RoFormerベースの4-stemモデル。MUSDB18HQ testで平均SDR 9.65 dB。特にdrumsとvocalsの分離性能が高い。',
+      source: 'noblebarkrr/mvsepless_resources',
+      description: '4ステム分離モデル。現在は実装予定です。',
+      availability: 'planned',
     },
     {
       id: 'htdemucs',
       name: 'HTDemucs',
       stems: ['vocals', 'drums', 'bass', 'other'],
-      hfRepo: 'puar-playground/htdemucs',
-      description:
-        'Metaの定番Hybrid Transformer Demucs。公式報告ではMUSDB HQで約9.0 dB SDR。最新モデルより精度は劣るが、実績があり扱いやすいベースライン。',
+      source: 'facebookresearch/demucs',
+      description: '定番の4ステム分離モデル。現在は実装予定です。',
+      availability: 'planned',
     },
   ],
-
   '6stem': [
     {
       id: 'bs-roformer-sw-6stem',
       name: 'BS-RoFormer SW 6 Stem',
       stems: ['vocals', 'drums', 'bass', 'guitar', 'piano', 'other'],
-      hfRepo: 'elicwhite/bs-roformer-sw-6stem-onnx',
-      description:
-        'vocals・drums・bassに加えてguitarとpianoまで個別に分離できるRoFormer系6-stemモデル。高品質な詳細ステム分離向け。',
-    },
-    {
-      id: 'htdemucs-6s',
-      name: 'HTDemucs 6s',
-      stems: ['vocals', 'drums', 'bass', 'guitar', 'piano', 'other'],
-      hfRepo: 'puar-playground/htdemucs',
-      description:
-        'HTDemucsの実験的6-stem版。guitarは比較的良好だが、公式にもpianoはbleedingやartifactが多いとされているため品質面では注意が必要。',
+      source: 'elicwhite/bs-roformer-sw-6stem-onnx',
+      description: '6ステム分離モデル。現在は実装予定です。',
+      availability: 'planned',
     },
   ],
-
   'multi-singer': [
+    {
+      id: 'unmixx',
+      name: 'UNMIXX',
+      stems: ['singer_1', 'singer_2', 'instrumental'],
+      source: 'jihoojung0106/unmixx',
+      description: '2人の歌声を匿名のSinger 1 / 2へ分離します。',
+      availability: 'available',
+      strategy: 'blind',
+    },
     {
       id: 'sepacap',
       name: 'SepACap',
-      stems: ['singer1', 'singer2', '...'],
-      hfRepo: 'Tino3141/sepacap',
-      description:
-        'アカペラ楽曲に特化した複数歌手分離モデル。JaCappellaでfull-ensemble・subsetの両条件において論文上SOTAを報告。複数人ボーカルの分離に最も特化した候補。',
+      stems: [
+        'alto', 'bass', 'finger_snap', 'lead_vocal', 'soprano', 'tenor',
+        'vocal_percussion', 'instrumental',
+      ],
+      source: 'Tino3141/sepacap',
+      description: 'アカペラを7つの固定声部と伴奏へ分離します。',
+      availability: 'available',
+      strategy: 'blind',
     },
     {
       id: 'medleyvox',
       name: 'MedleyVox / iSRNet',
-      stems: ['singer1', 'singer2', '...'],
-      hfRepo: 'Cyru5/MedleyVox',
-      description:
-        'duet・unison・N-singer separationを対象とした複数歌唱音声分離モデル。研究用ベースラインとして有用だが、Hugging FaceのModel Cardには統一された性能値が明記されていない。',
+      stems: ['singer_1', 'singer_2'],
+      source: 'Cyru5/MedleyVox',
+      description: '公開checkpointは2出力のため、3人以上の要件を満たさず未実装です。',
+      availability: 'planned',
+      strategy: 'blind',
+    },
+    {
+      id: 'singer-informed',
+      name: 'Singer-Informed (Concat λ=0.1)',
+      stems: ['target_vocal', 'residual'],
+      source: 'jocelynxu01/singer-separation-paper',
+      description: '3秒以上の参照音声を使い、指定した歌手だけを抽出します。',
+      availability: 'available',
+      strategy: 'target',
+      requiresEnrollment: true,
     },
   ],
 }
 
 export const separationModes = Object.keys(modelsByMode) as SeparationMode[]
+
+export function modelsForSelection(
+  mode: SeparationMode,
+  strategy: MultiSingerStrategy = 'blind',
+): ModelOption[] {
+  if (mode !== 'multi-singer') return modelsByMode[mode]
+  return modelsByMode[mode].filter((model) => model.strategy === strategy)
+}
+
+export function firstAvailableModel(
+  mode: SeparationMode,
+  strategy: MultiSingerStrategy = 'blind',
+): ModelOption | undefined {
+  return modelsForSelection(mode, strategy).find((model) => model.availability === 'available')
+}
+
+export function modelRequiresEnrollment(modelId: string): boolean {
+  return Object.values(modelsByMode)
+    .flat()
+    .some((model) => model.id === modelId && model.requiresEnrollment === true)
+}
