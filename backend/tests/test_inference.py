@@ -90,6 +90,26 @@ class InferenceContractTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "chunk_size"):
             inference.inference("bs-polarformer", {"input_path": "song.wav", "chunk_size": 1})
 
+    def test_singer_informed_requires_enrollment_and_delegates(self) -> None:
+        """target singerモデルだけが参照音声を要求し、専用実行層へ渡す。"""
+        expected = {"target_vocal": "out/target_vocal.wav", "residual": "out/residual.wav"}
+        with self.assertRaisesRegex(ValueError, "enrollment_path"):
+            inference.inference("singer-informed", {"input_path": "song.wav"})
+
+        with patch.object(inference, "separate_target_singer", return_value=expected) as separator:
+            actual = inference.inference(
+                "singer-informed",
+                {
+                    "input_path": "song.wav",
+                    "enrollment_path": "reference.wav",
+                    "output_dir": "out",
+                },
+            )
+
+        self.assertEqual(actual, expected)
+        request = separator.call_args.args[0]
+        self.assertEqual(request.enrollment_path, Path("reference.wav"))
+
 
 if __name__ == "__main__":
     unittest.main()

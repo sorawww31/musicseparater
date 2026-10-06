@@ -5,6 +5,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
+from collections.abc import Callable
 from typing import Any
 
 import numpy as np
@@ -60,7 +61,9 @@ class BaseSeparator(ABC):
         """必要な重みと推論セッションを準備する。"""
 
     @abstractmethod
-    def separate(self, audio: AudioData) -> SeparationResult:
+    def separate(
+        self, audio: AudioData, progress: Callable[[int, int], None] | None = None,
+    ) -> SeparationResult:
         """入力音声をモデルが扱うステムへ分離する。"""
 
 
@@ -146,21 +149,30 @@ class BSPolarFormer(BaseSeparator):
             raise RuntimeError("CUDAExecutionProvider の初期化に失敗しました。--cpu を指定するか CUDA 環境を確認してください")
         print(f"ONNX Runtime providers: {', '.join(self.session.get_providers())}")
 
-    def separate(self, audio: AudioData) -> SeparationResult:
+    def separate(
+        self, audio: AudioData, progress: Callable[[int, int], None] | None = None,
+    ) -> SeparationResult:
         """44.1 kHz ステレオ音声を vocals / instrumental に分離する。"""
         self._require_runtime()
         normalized = self._normalize_audio(audio.waveform)
-        vocals = self._separate_chunks(normalized)
+        vocals = self._separate_chunks(normalized, progress)
         return SeparationResult(
             stems={"vocals": vocals, "instrumental": normalized - vocals},
             sample_rate=self.config.sample_rate,
         )
 
-    def separate_file(self, input_path: str | Path, output_dir: str | Path) -> dict[str, str]:
+    def separate_file(
+        self,
+        input_path: str | Path,
+        output_dir: str | Path,
+        progress: Callable[[int, int], None] | None = None,
+    ) -> dict[str, str]:
         """音声ファイルを読み、2 つの WAV ステムを書き出してパスを返す。"""
         self._require_runtime()
         waveform = load_audio(input_path, self.config.sample_rate)
-        result = self.separate(AudioData(waveform=waveform, sample_rate=self.config.sample_rate))
+        result = self.separate(
+            AudioData(waveform=waveform, sample_rate=self.config.sample_rate), progress,
+        )
         return write_stems(result.stems, result.sample_rate, output_dir)
 
     def _require_runtime(self) -> None:
@@ -169,8 +181,6 @@ class BSPolarFormer(BaseSeparator):
 
     def _normalize_audio(self, waveform: Any) -> Any:
         """mono / 多チャンネル入力をモデル入出力仕様の stereo float32 にそろえる。"""
-
-
         audio = np.asarray(waveform, dtype=np.float32)
         if audio.ndim == 1:
             audio = np.stack((audio, audio))
@@ -180,13 +190,13 @@ class BSPolarFormer(BaseSeparator):
             audio = np.repeat(audio, self.config.channels, axis=0)
         return audio[: self.config.channels]
 
-    def _separate_chunks(self, audio: Any) -> Any:
+    def _separate_chunks(
+        self, audio: Any, progress: Callable[[int, int], None] | None = None,
+    ) -> Any:
         """オーバーラップ平均で長尺音源を処理する。"""
         from tqdm import tqdm
 
         total_samples = audio.shape[1]
-       
-
         step = self.chunk_size // self.config.overlap_count
         vocals = np.zeros_like(audio, dtype=np.float32)
         counts = np.zeros(total_samples, dtype=np.float32)
@@ -201,6 +211,8 @@ class BSPolarFormer(BaseSeparator):
             predicted = self._predict_vocals(padded)
             vocals[:, start:end] += predicted[:, : end - start]
             counts[start:end] += 1
+            if progress is not None:
+                progress(start // step + 1, len(starts))
         return vocals / np.maximum(counts, 1)[None, :]
 
     def _predict_vocals(self, audio: Any) -> Any:
@@ -217,14 +229,11 @@ class BSPolarFormer(BaseSeparator):
         """ORT と PyTorch の両方で CUDA を使える場合だけ、GPU 前後処理を有効にする。"""
         if not self._uses_cuda:
             return None
-        
-
         if not torch.cuda.is_available():
             return None
         return torch.device("cuda", self.config.cuda_device_id)
 
     def _prepare_stft(self, audio: Any, device: Any | None) -> _StftData:
-
         # mixed FP16 モデルも ONNX 入出力は FP32 固定。半精度の特徴量を渡すと
         # 入力契約に合わないため、常に float32 を生成する。
         raw = torch.from_numpy(audio).to(device=device, dtype=torch.float32)
@@ -270,7 +279,6 @@ class BSPolarFormer(BaseSeparator):
         return mask
 
     def _reconstruct_audio(self, prepared: _StftData, mask: Any) -> Any:
-
         stft = torch.view_as_complex(prepared.stft.unsqueeze(1).contiguous())
         mask_tensor = mask if isinstance(mask, torch.Tensor) else torch.from_numpy(mask)
         masked = stft * torch.view_as_complex(mask_tensor.contiguous())

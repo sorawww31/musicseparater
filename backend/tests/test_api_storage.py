@@ -18,6 +18,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import main  # noqa: E402
 from src.config import AudioStorageConfig  # noqa: E402
+from src.job_manager import JobManager  # noqa: E402
 from src.storage import AudioStorage  # noqa: E402
 
 
@@ -28,22 +29,30 @@ class ApiStorageTests(unittest.TestCase):
         """アップロードと推論を分け、保存済み audio_id を推論へ渡す。"""
         with tempfile.TemporaryDirectory() as temporary_directory:
             previous_storage = main.storage
+            previous_job_manager = main.job_manager
             main.storage = AudioStorage(
                 AudioStorageConfig(root_directory=Path(temporary_directory) / "audio")
             )
+            main.job_manager = JobManager(main.storage)
 
             def fake_inference(
                 model_id: str,
                 metadata: dict[str, object],
                 num_vocals: int | None,
+                progress: object,
             ) -> dict[str, str]:
                 self.assertEqual(model_id, "bs-polarformer")
                 self.assertEqual(num_vocals, 2)
                 stems_directory = Path(metadata["output_dir"])
                 stems_directory.mkdir(parents=True)
                 vocals_path = stems_directory / "vocals.wav"
+                instrumental_path = stems_directory / "instrumental.wav"
                 vocals_path.write_bytes(b"stem")
-                return {"vocals": str(vocals_path)}
+                instrumental_path.write_bytes(b"stem")
+                return {
+                    "vocals": str(vocals_path),
+                    "instrumental": str(instrumental_path),
+                }
 
             try:
                 uploadfile = UploadFile(
@@ -59,8 +68,12 @@ class ApiStorageTests(unittest.TestCase):
                 )
                 with patch.object(main, "inference", side_effect=fake_inference):
                     response = asyncio.run(main.separate_audio(payload))
+                    main.job_manager.wait_for(response["job_id"])
+                    status_response = asyncio.run(main.get_separation(response["job_id"]))
             finally:
+                main.job_manager.shutdown()
                 main.storage = previous_storage
+                main.job_manager = previous_job_manager
 
             root = Path(temporary_directory)
             source_directory = root / "audio" / "sources" / upload_response["audio_id"]
@@ -77,11 +90,15 @@ class ApiStorageTests(unittest.TestCase):
             self.assertEqual(metadata["num_vocals"], 2)
             self.assertNotIn("bs-polarformer", str(separation_directory))
             self.assertTrue((separation_directory / "stems" / "vocals.wav").exists())
+            self.assertEqual(response["status"], "queued")
+            self.assertEqual(response["status_url"], f"/separations/{response['job_id']}")
+            self.assertEqual(status_response["status"], "completed")
+            self.assertEqual(status_response["progress_percent"], 100)
             self.assertEqual(
-                response["stems"]["vocals"],
+                status_response["stems"]["vocals"],
                 f"/separations/{response['job_id']}/stems/vocals",
             )
-            self.assertNotIn("audio/", str(response))
+            self.assertNotIn("audio/", str(status_response))
 
     def test_original_url_serves_source_without_exposing_storage_path(self) -> None:
         """元音源はaudio_idで取得し、保存先を直接公開しない。"""
@@ -125,6 +142,10 @@ class ApiStorageTests(unittest.TestCase):
                 self.assertEqual(response.media_type, "audio/wav")
                 self.assertEqual(response.path, stem_path.resolve())
                 self.assertNotIn("content-disposition", response.headers)
+                download_response = asyncio.run(
+                    main.get_separation_stem(job_id, "vocals", download=True)
+                )
+                self.assertIn('filename="vocals.wav"', download_response.headers["content-disposition"])
                 with self.assertRaises(HTTPException) as error:
                     asyncio.run(main.get_separation_stem(job_id, "missing"))
                 self.assertEqual(error.exception.status_code, 404)
@@ -141,6 +162,76 @@ class ApiStorageTests(unittest.TestCase):
 
         self.assertEqual(error.exception.status_code, 404)
         mocked_inference.assert_not_called()
+
+    def test_singer_informed_requires_and_forwards_reference_audio(self) -> None:
+        """参照IDを検証し、対象楽曲とは別の保存済み音源をrunnerへ渡す。"""
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            previous_storage = main.storage
+            previous_job_manager = main.job_manager
+            main.storage = AudioStorage(
+                AudioStorageConfig(root_directory=Path(temporary_directory) / "audio")
+            )
+            main.job_manager = JobManager(main.storage)
+            audio_id = main.storage.new_id()
+            reference_audio_id = main.storage.new_id()
+            source_path = main.storage.source_paths(audio_id)["original"]
+            reference_path = main.storage.source_paths(reference_audio_id)["original"]
+            source_path.parent.mkdir(parents=True)
+            reference_path.parent.mkdir(parents=True)
+            source_path.write_bytes(b"mixture")
+            reference_path.write_bytes(b"enrollment")
+
+            def fake_inference(
+                model_id: str,
+                metadata: dict[str, object],
+                num_vocals: int | None,
+                progress: object,
+            ) -> dict[str, str]:
+                self.assertEqual(model_id, "singer-informed")
+                self.assertIsNone(num_vocals)
+                self.assertEqual(Path(metadata["enrollment_path"]), reference_path.resolve())
+                output_directory = Path(metadata["output_dir"])
+                output_directory.mkdir(parents=True)
+                paths = {
+                    stem: output_directory / f"{stem}.wav"
+                    for stem in ("target_vocal", "residual")
+                }
+                for path in paths.values():
+                    path.write_bytes(b"stem")
+                return {stem: str(path) for stem, path in paths.items()}
+
+            try:
+                missing_reference = main.SeparationPayload(
+                    audio_id=audio_id,
+                    model_id="singer-informed",
+                )
+                with self.assertRaises(HTTPException) as error:
+                    asyncio.run(main.separate_audio(missing_reference))
+                self.assertEqual(error.exception.status_code, 422)
+
+                payload = main.SeparationPayload(
+                    audio_id=audio_id,
+                    reference_audio_id=reference_audio_id,
+                    model_id="singer-informed",
+                )
+                with patch.object(main, "inference", side_effect=fake_inference):
+                    response = asyncio.run(main.separate_audio(payload))
+                    main.job_manager.wait_for(response["job_id"])
+            finally:
+                main.job_manager.shutdown()
+                main.storage = previous_storage
+                main.job_manager = previous_job_manager
+
+            metadata_path = (
+                Path(temporary_directory)
+                / "audio"
+                / "separations"
+                / response["job_id"]
+                / "metadata.json"
+            )
+            metadata = json.loads(metadata_path.read_text())
+            self.assertEqual(metadata["reference_audio_id"], reference_audio_id)
+            self.assertEqual(metadata["status"], "completed")
 
     def test_openapi_separates_multipart_upload_from_json_inference(self) -> None:
         """公開スキーマでも upload は form、separation は JSON として示す。"""

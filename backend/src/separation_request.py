@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from .config import BS_POLARFORMER, SEPARATION_RUNTIME
+from .config import BS_POLARFORMER, SEPARATION_RUNTIME, SINGER_INFORMED
 
 
 @dataclass(frozen=True)
@@ -15,12 +15,14 @@ class SeparationRequest:
     """辞書で受け取る推論指定を、モデル生成に使える不変の設定へ変換する。"""
 
     input_path: Path
+    enrollment_path: Path | None
     output_dir: Path
     model_path: str | None
     cache_dir: str | None
     providers: tuple[str, ...]
     precision: str
     chunk_size: int | None
+    conditioning_lambda: str
 
     @classmethod
     def from_metadata(cls, metadata: Mapping[str, Any]) -> SeparationRequest:
@@ -44,15 +46,22 @@ class SeparationRequest:
             or chunk_size < BS_POLARFORMER.win_length
         ):
             raise ValueError("chunk_size が不正です")
+        conditioning_lambda = metadata.get("conditioning_lambda")
+        if conditioning_lambda is not None and not isinstance(conditioning_lambda, str):
+            raise ValueError("conditioning_lambda が不正です")
+        # 未公開の条件はcheckpointを探す前に弾く。
+        checkpoint = SINGER_INFORMED.checkpoint_for(conditioning_lambda)
 
         return cls(
             input_path=Path(input_path),
+            enrollment_path=cls._optional_path(metadata, "enrollment_path"),
             output_dir=Path(metadata.get("output_dir", BS_POLARFORMER.output_directory)),
             model_path=cls._optional_path_value(metadata, "model_path", SEPARATION_RUNTIME.model_path),
             cache_dir=cls._optional_path_value(metadata, "cache_dir", SEPARATION_RUNTIME.cache_dir),
             providers=tuple(providers or ()),
             precision=precision,
             chunk_size=chunk_size,
+            conditioning_lambda=checkpoint.conditioning_lambda,
         )
 
     @staticmethod
@@ -62,3 +71,9 @@ class SeparationRequest:
         """従来どおり、空値は未指定として扱い、指定値は文字列化する。"""
         value = metadata.get(key, default)
         return str(value) if value else None
+
+    @staticmethod
+    def _optional_path(metadata: Mapping[str, Any], key: str) -> Path | None:
+        """任意のファイルパスを未指定または Path として正規化する。"""
+        value = metadata.get(key)
+        return Path(value) if value else None

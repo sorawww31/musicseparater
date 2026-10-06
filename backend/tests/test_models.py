@@ -1,11 +1,11 @@
-"""backend/tests/test_models.py: 実行 provider ごとのモデル精度選択を確認する。"""
+"""backend/tests/test_models.py: モデル精度とチャンク進捗の呼び出し契約を確認する。"""
 
 import sys
 import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, call, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -123,3 +123,20 @@ class BSPolarFormerLoadTests(unittest.TestCase):
 
         np.testing.assert_allclose(result, np.ones((2, 5), dtype=np.float32))
         progress.assert_called_once_with(range(0, 5, 2), desc="分離", total=3, unit="chunk")
+
+    def test_separate_file_forwards_chunk_progress(self) -> None:
+        """ファイル分離でもチャンク進捗を呼び出し元へ通知する。"""
+        import numpy as np
+
+        separator = BSPolarFormer(chunk_size=4)
+        separator.session = Mock()
+        separator._predict_vocals = Mock(side_effect=lambda audio: audio)
+        chunk_progress = Mock()
+        expected = {"vocals": "out/vocals.wav", "instrumental": "out/instrumental.wav"}
+
+        with patch("src.models.load_audio", return_value=np.ones((2, 5), dtype=np.float32)):
+            with patch("src.models.write_stems", return_value=expected):
+                actual = separator.separate_file("song.wav", "out", chunk_progress)
+
+        self.assertEqual(actual, expected)
+        self.assertEqual(chunk_progress.call_args_list, [call(1, 3), call(2, 3), call(3, 3)])

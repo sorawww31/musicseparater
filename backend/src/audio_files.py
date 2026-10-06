@@ -16,6 +16,23 @@ def load_audio(source: str | Path, sample_rate: int) -> Any:
     return waveform
 
 
+def stereo_at_length(path: str | Path, sample_rate: int, length: int) -> Any:
+    """ステムを指定周波数のステレオへそろえ、基準の長さへ合わせる。"""
+    import numpy as np
+
+    audio = np.asarray(load_audio(path, sample_rate), dtype=np.float32)
+    if audio.ndim == 1:
+        audio = np.stack((audio, audio))
+    if audio.shape[0] == 1:
+        audio = np.repeat(audio, 2, axis=0)
+    normalized = np.zeros((2, length), dtype=np.float32)
+    copy_length = min(length, audio.shape[1])
+    normalized[:, :copy_length] = audio[:2, :copy_length]
+    if not np.isfinite(normalized).all():
+        raise RuntimeError("分離結果に非有限値が含まれています")
+    return normalized
+
+
 def write_stems(stems: Mapping[str, Any], sample_rate: int, output_dir: str | Path) -> dict[str, str]:
     """チャンネル先行のステムを WAV に書き出し、ステム名ごとの出力パスを返す。"""
     import soundfile as sound_file

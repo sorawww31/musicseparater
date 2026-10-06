@@ -17,6 +17,7 @@ class SeparationRequestTests(unittest.TestCase):
         request = SeparationRequest.from_metadata(
             {
                 "audio_path": "song.wav",
+                "enrollment_path": "reference.wav",
                 "output_dir": "out",
                 "model_path": Path("model.onnx"),
                 "cache_dir": Path("cache"),
@@ -27,6 +28,7 @@ class SeparationRequestTests(unittest.TestCase):
         )
 
         self.assertEqual(request.input_path, Path("song.wav"))
+        self.assertEqual(request.enrollment_path, Path("reference.wav"))
         self.assertEqual(request.output_dir, Path("out"))
         self.assertEqual(request.model_path, "model.onnx")
         self.assertEqual(request.cache_dir, "cache")

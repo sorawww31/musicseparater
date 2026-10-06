@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 from collections.abc import Mapping
 from datetime import datetime, timezone
 from pathlib import Path
@@ -41,7 +42,9 @@ class AudioStorage:
         return {
             "directory": separation_directory,
             "metadata": separation_directory / "metadata.json",
+            "staging": separation_directory / "staging",
             "stems": separation_directory / "stems",
+            "work": separation_directory / "work",
         }
 
     def find_source_path(self, audio_id: str) -> Path | None:
@@ -89,12 +92,39 @@ class AudioStorage:
         return paths
 
     def write_metadata(self, path: Path, metadata: Mapping[str, Any]) -> None:
-        """UTF-8 の JSON metadata を親ディレクトリと一緒に作成する。"""
+        """同一ディレクトリ内で置換し、読取側に途中のJSONを見せない。"""
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(
+        temporary_path = path.with_name(f".{path.name}.{uuid4().hex}.tmp")
+        temporary_path.write_text(
             json.dumps(dict(metadata), ensure_ascii=False, indent=2) + "\n",
             encoding="utf-8",
         )
+        temporary_path.replace(path)
+
+    def read_metadata(self, path: Path) -> dict[str, Any] | None:
+        """存在する metadata JSON を読み、未作成なら None を返す。"""
+        if not path.is_file():
+            return None
+        return json.loads(path.read_text(encoding="utf-8"))
+
+    def promote_stems(self, job_id: str) -> Path:
+        """全成果物が完成した staging だけを公開ディレクトリへ昇格する。"""
+        paths = self.separation_paths(job_id)
+        if not paths["staging"].is_dir():
+            raise RuntimeError("staging 成果物がありません")
+        paths["staging"].replace(paths["stems"])
+        return paths["stems"]
+
+    def cleanup_job_temporary_files(self, job_id: str) -> None:
+        """非公開の中間ボーカルと未完成成果物をジョブ内だけから除く。"""
+        paths = self.separation_paths(job_id)
+        for key in ("staging", "work"):
+            shutil.rmtree(paths[key], ignore_errors=True)
+
+    def separation_metadata_paths(self) -> list[Path]:
+        """起動時リカバリ対象の metadata を列挙する。"""
+        root = self.config.root_directory / "separations"
+        return sorted(root.glob("*/metadata.json")) if root.is_dir() else []
 
     @staticmethod
     def timestamp() -> str:
