@@ -14,8 +14,11 @@ import { SeparationSettings } from './components/SeparationSettings.tsx'
 import { UploadArea } from './components/UploadArea.tsx'
 import { defaultSeparationMode, pollingIntervalMs } from './config.ts'
 import {
+  defaultConditioningLambda,
   firstAvailableModel,
   modelRequiresEnrollment,
+  modelSupportsConditioningLambda,
+  type ConditioningLambda,
   type MultiSingerStrategy,
   type SeparationMode,
 } from './features/modelCatalog/modelCatalog.ts'
@@ -37,6 +40,9 @@ function App() {
   const [referenceAudioId, setReferenceAudioId] = useState<string | null>(null)
   const [selectedMode, setSelectedMode] = useState<SeparationMode>(defaultSeparationMode)
   const [selectedStrategy, setSelectedStrategy] = useState<MultiSingerStrategy>('blind')
+  const [selectedLambda, setSelectedLambda] = useState<ConditioningLambda>(
+    defaultConditioningLambda,
+  )
   const [selectedModel, setSelectedModel] = useState(
     firstAvailableModel(defaultSeparationMode)?.id ?? '',
   )
@@ -113,6 +119,7 @@ function App() {
         selectedModel,
         requestController.signal,
         currentReferenceAudioId ?? undefined,
+        modelSupportsConditioningLambda(selectedModel) ? selectedLambda : undefined,
       )
       while (!requestController.signal.aborted) {
         const currentJob = await getSeparationJob(created.status_url, requestController.signal)
@@ -145,9 +152,11 @@ function App() {
           selectedMode={selectedMode}
           selectedStrategy={selectedStrategy}
           selectedModel={selectedModel}
+          selectedLambda={selectedLambda}
           onModeChange={changeMode}
           onStrategyChange={changeStrategy}
           onModelChange={changeModel}
+          onLambdaChange={setSelectedLambda}
           disabled={busy}
         />
         {needsEnrollment && (

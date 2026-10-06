@@ -92,12 +92,26 @@ export const modelsByMode: Record<SeparationMode, ModelOption[]> = {
       strategy: 'blind',
     },
     {
+      id: 'jacappella-dptnet',
+      name: 'jaCappella DPTNet',
+      stems: [
+        'vocal_percussion', 'bass', 'alto', 'tenor', 'soprano', 'lead_vocal',
+        'instrumental',
+      ],
+      source: 'jaCappella/DPTNet_jaCappella_VES_48k',
+      description:
+        '48 kHzで6声部へ分離します。歌手名ではなく声域で分かれるため、女声はsoprano / alto、男声はtenor / bassへ出ます。',
+      availability: 'available',
+      strategy: 'blind',
+    },
+    {
       id: 'medleyvox',
       name: 'MedleyVox / iSRNet',
-      stems: ['singer_1', 'singer_2'],
+      stems: ['singer_1', 'singer_2', 'instrumental'],
       source: 'Cyru5/MedleyVox',
-      description: '公開checkpointは2出力のため、3人以上の要件を満たさず未実装です。',
-      availability: 'planned',
+      description:
+        '公開checkpointは2出力固定のため、3人以上は分けられません。非公式の再学習済み重みを使います。',
+      availability: 'available',
       strategy: 'blind',
     },
     {

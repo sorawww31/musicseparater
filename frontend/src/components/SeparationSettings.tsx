@@ -1,8 +1,12 @@
 // frontend/src/components/SeparationSettings.tsx
 // モード・方式・実行可能モデルを選び、人数はモデル契約から固定します。
 import {
+  type ConditioningLambda,
   type SeparationMode,
   type MultiSingerStrategy,
+  conditioningLambdaLabels,
+  conditioningLambdas,
+  modelSupportsConditioningLambda,
   modelsForSelection,
   separationModes,
 } from '../features/modelCatalog/modelCatalog.ts'
@@ -23,9 +27,11 @@ type SeparationSettingsProps = {
   selectedMode: SeparationMode
   selectedStrategy: MultiSingerStrategy
   selectedModel: string
+  selectedLambda: ConditioningLambda
   onModeChange: (mode: SeparationMode) => void
   onStrategyChange: (strategy: MultiSingerStrategy) => void
   onModelChange: (modelId: string) => void
+  onLambdaChange: (conditioningLambda: ConditioningLambda) => void
   disabled: boolean
 }
 
@@ -33,12 +39,15 @@ export function SeparationSettings({
   selectedMode,
   selectedStrategy,
   selectedModel,
+  selectedLambda,
   onModeChange,
   onStrategyChange,
   onModelChange,
+  onLambdaChange,
   disabled,
 }: SeparationSettingsProps) {
   const modelOptions = modelsForSelection(selectedMode, selectedStrategy)
+  const showLambda = modelSupportsConditioningLambda(selectedModel)
 
   return (
     <section className="panel settings">
@@ -103,6 +112,28 @@ export function SeparationSettings({
           ))}
         </div>
       </fieldset>
+
+      {showLambda && (
+        <fieldset disabled={disabled}>
+          <legend>学習条件 λ</legend>
+          <div className="option-grid lambda-options">
+            {conditioningLambdas.map((conditioningLambda) => (
+              <label key={conditioningLambda} className="option-card">
+                <input
+                  type="radio"
+                  name="conditioning-lambda"
+                  checked={selectedLambda === conditioningLambda}
+                  onChange={() => onLambdaChange(conditioningLambda)}
+                />
+                {conditioningLambdaLabels[conditioningLambda]}
+              </label>
+            ))}
+          </div>
+          <p className="field-help">
+            dual lossの学習時重みで、条件ごとに別のcheckpointへ切り替えます。
+          </p>
+        </fieldset>
+      )}
     </section>
   )
 }
