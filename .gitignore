@@ -1,2 +1,5 @@
 .cache
 audio
+# Colab の実行環境・取得物・ログは共有しない。
+.colab/
+__pycache__/

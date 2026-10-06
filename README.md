@@ -4,13 +4,65 @@
 
 ブラウザから音声ファイルをアップロードし、ボーカル・伴奏や複数の歌声に分離するアプリケーションです。分離した音声は画面上で試聴し、WAV 形式でダウンロードできます。
 
-## 必要な環境
+## Google Colab で使う（友人への共有向け）
+
+[music_separater.ipynb](music_separater.ipynb) を Colab で開き、GPU を選択して、
+「① 準備する」→「② アプリを開く」の順に ▶ を押してください。
+ノートブック内に日本語の操作画面が表示され、アップロード・分離・試聴・WAV 保存ができます。
+手元のパソコンに Docker や Python をインストールする必要はありません。
+
+共有者は、**今回の変更を含むコードを取得可能な公開 GitHub リポジトリに置き**、
+①の `repository_url` に HTTPS URL を設定してノートブックを共有してください。
+この作業フォルダーには Git remote がないため、URL の既定値は空欄です。
+`revision` にコミット ID を指定すれば配布バージョンを固定できます。空欄では既定ブランチを取得します。
+再実行では取得済みコードを利用します。URL・revision の変更や最新版の再取得は、
+ランタイムを削除してから①を実行してください。非公開リポジトリの認証はこの手順の対象外です。
+
+友人は自分の Drive にノートブックをコピーし、それぞれの Colab GPU で実行します。
+共有するのはノートブックであり、起動した画面の URL ではありません。
+共有前にセル出力を消去してください。音声・分離結果は Colab の一時ディスク上にあるため、
+ランタイムを終了する前に必要な WAV をダウンロードしてください。
+
+### Colab の実行条件と実装
+
+- uv、Python 3.12 と CUDA 対応 PyTorch がある GPU ランタイムを使用します。
+- `uv venv --system-site-packages` で `.colab/venv` を作り、Colab の PyTorch を継承します。
+  追加依存は `UV_PROJECT_ENVIRONMENT="$PWD/.colab/venv" uv sync --project backend --locked --no-install-project`
+  で導入します。既存の `backend/pyproject.toml` と
+  `backend/uv.lock` を使い、依存一覧を二重管理しません。
+- Colab の npm / Node.js を優先し、Node.js が Vite の対応版より古い場合だけ `.colab` に補います。
+  `npm ci` で既存 UI をビルドします。モデル用コードと重みは
+  `backend/Dockerfile` と同じ固定 commit / SHA-256 で取得します。
+- GPU は PyTorch と ONNX Runtime の小さな演算で確認します。SepACap は BF16 対応 GPU が必要です。
+- `colab_runtime` が既存 API と UI を同一ポートで配信し、Colab の iframe 内に表示します。
+  調整値は `colab_runtime/config.py`、起動ログは `.colab/server.log` にあります。
+- ローカル検証では Colab のブラウザ・GPU 割り当てを再現できません。実際の Colab での初回分離は別途確認が必要です。
+
+開発時の Colab 補助コードの検証: `python -m unittest discover -s tests -v`。
+既存 API と UI のテストは各 README の手順を使用してください。
+
+参照: [Colab 公式表示 API](https://github.com/googlecolab/colabtools/blob/main/google/colab/output/_util.py)、
+[ONNX Runtime CUDA](https://onnxruntime.ai/docs/execution-providers/CUDA-ExecutionProvider.html)、
+[Vite の相対ベース URL](https://vite.dev/guide/build.html#relative-base)。
+
+## ローカルで使う場合に必要な環境
 
 - Docker と Docker Compose
 - NVIDIA GPU とドライバー、および Docker から GPU を利用できる環境（NVIDIA Container Toolkit など）
 - 初回ビルド・モデル取得用のインターネット接続
 
 現在の Docker Compose 構成は NVIDIA GPU を 1 台使用します。SepACap には BF16 対応 GPU が必要です。既存のバックエンド検証環境は RTX 4070 Ti（VRAM 12 GB）です。詳細は [バックエンド README](backend/README.md) を参照してください。
+
+## リポジトリを取得する
+
+Git がインストールされた環境で、次のコマンドを実行します。`<リポジトリURL>` はこのリポジトリの Git URL に置き換えてください。
+
+```bash
+git clone <リポジトリURL> musicseparater
+cd musicseparater
+```
+
+以降のコマンドは、`compose.yaml` があるリポジトリのルート（`musicseparater` ディレクトリ）で実行します。
 
 ## 初回セットアップと起動
 
