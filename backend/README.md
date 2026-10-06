@@ -9,13 +9,33 @@ FastAPI と1本のGPUキューで、次のモデルを実行します。
 | `bs-polarformer` | 2ステム分離 | vocals, instrumental | ONNX FP16（既定） |
 | `unmixx` | 2人の歌声分離 | singer_1, singer_2, instrumental | PyTorch FP32 |
 | `sepacap` | アカペラ声部分離 | 7声部, instrumental | PyTorch BF16 |
+| `jacappella-dptnet` | 声域6声部分離 | 6声部, instrumental | PyTorch FP32 |
+| `medleyvox` | 2人の歌声分離 | singer_1, singer_2, instrumental | PyTorch FP32 |
 | `singer-informed` | 参照歌手抽出 | target_vocal, residual | ONNX FP16 → PyTorch FP32 |
 
-UNMIXX と SepACap は、最初に BS PolarFormer で市販曲から vocals を抽出します。歌声モデルには
-24 kHz stereo、96,000 samples（4秒）、50% overlapで入力し、完成したWAVは44.1 kHz stereoかつ
-instrumentalと同じ長さへ戻します。UNMIXXの匿名出力は左右チャンネルと隣接チャンクの相関で順を
-合わせます。SepACapの順序は `alto / bass / finger_snap / lead_vocal / soprano / tenor /
-vocal_percussion` 固定です。
+複数歌声モデルはいずれも、最初に BS PolarFormer で市販曲から vocals を抽出します。歌声モデルへの
+入力周波数と分割長は学習条件ごとに違うため、モデル設定から引きます。完成したWAVはどのモデルでも
+44.1 kHz stereoかつinstrumentalと同じ長さへ戻します。
+
+| model_id | 入力周波数 | チャンク | 出力順 |
+| --- | --- | --- | --- |
+| `unmixx` | 24 kHz | 96,000 samples（4秒）/ 50% overlap | 匿名（相関で整列） |
+| `sepacap` | 24 kHz | 96,000 samples（4秒）/ 50% overlap | `alto / bass / finger_snap / lead_vocal / soprano / tenor / vocal_percussion` 固定 |
+| `jacappella-dptnet` | 48 kHz | 242,208 samples（学習時のseq_dur 5.046秒）/ 50% overlap | `vocal_percussion / bass / alto / tenor / soprano / lead_vocal` 固定 |
+| `medleyvox` | 24 kHz | 72,000 samples（学習時のseq_dur 3.0秒）/ 50% overlap | 匿名（相関で整列） |
+
+UNMIXX と MedleyVox の匿名出力は、左右チャンネルと隣接チャンクの相関で順を合わせます。声部名が
+決まっているモデルは出力indexと声部の対応が固定なので、並べ替えません。
+
+`jacappella-dptnet` は歌手ではなく声域で分かれます。女声は soprano / alto、男声は tenor / bass 側へ
+出るため、男声2人と女声1人の混合から女声を取り出す用途に使えます。sigmoid maskの直接出力は混合より
+十数倍小さいので、公式 `separate.py` の既定と同じく、合成後の全長に対して最小二乗で各声部の利得を
+混合へ合わせ直します。チャンクごとに解くと利得が段差になるため、重ね合わせの後に一度だけ解きます。
+
+`medleyvox` は `n_src=2` 固定のduetモデルで、3人以上は分けられず、どちらが誰かも決まりません。
+公式著者は重みを公開しておらず、cc-by-4.0で配布された第三者の再学習版を使います。学習時と同じ
+-24 LUFSへ入力を正規化してから推論し、出力で同じ利得を戻します。市販曲の音量をそのまま入れると
+出力の合計が実測で入力の1/5まで痩せるため、この正規化を省略できません。
 
 `singer-informed` も BS PolarFormerを前段に置きます。論文は混合曲を直接入力しますが、採用モデルは
 帯域16 kHz・3層LSTMの条件付きOpen-Unmixで、単体では伴奏が `target_vocal` へ大きく残ります。伴奏除去は
@@ -43,6 +63,19 @@ SepACapはステレオ4秒推論で約6.6 GiBを使うため、CUDAとBF16対応
 - SepACap: `Tino3141/sepacap` の固定revisionから設定とcheckpointを取得し、SHA-256を検証。
 - UNMIXX: 公式Hugging Face checkpointがないため、公式GitHubの固定commitに同梱された
   `ckpt/best.ckpt` を使用し、SHA-256を検証。
+- jaCappella DPTNet: `jaCappella/DPTNet_jaCappella_VES_48k` の固定revisionから
+  `best_model.pth` を取得し、SHA-256を検証。モデル構成は同梱 `conf.yml` ではなく
+  serialize済みcheckpointの `model_args` から復元します。`conf.yml` の `masknet` には
+  DPTNetの引数ではない `out_chan` が混ざっており、公式 `from_pretrained` も `model_args` を使います。
+- MedleyVox: `Cyru5/MedleyVox` の固定revisionから `vocals.pth` と、構成を持つ `vocals.json` を
+  取得し、SHA-256を検証。EMA学習のcheckpointはEMA重みとonline重みを同じdictへ並べているため、
+  公式既定の `ema_model` 側だけを取り出して `strict=True` でロードします。
+
+jaCappella DPTNet と MedleyVox はどちらも asteroid 0.6.1dev 系の実装を要求します。
+`asteroid-filterbanks` をpipで導入するとtorchが再解決され、ベースイメージのCUDA版が壊れるため、
+他の研究コードと同じく固定commitのソースをimportパスへ足して使います。MedleyVoxの本家
+`jeonchangbin49/MedleyVox` は `svs/models/__init__.py` が同梱されていない `discriminator` を
+importするため実行できず、READMEが案内するforkを固定しています。
 - Singer-Informed: [論文](https://arxiv.org/abs/2608.14516)の公開Google Driveから
   Concatenation λ=0.1 と clean embedding をDocker build時に取得し、Docker `ADD --checksum` と
   実行前検証の両方でSHA-256を固定。公開[研究コード](https://github.com/jocelynxu01/singer-separation-paper)
@@ -52,6 +85,9 @@ SepACapはステレオ4秒推論で約6.6 GiBを使うため、CUDAとBF16対応
 UNMIXX、SepACap、Singer-Informedの研究成果物には再配布条件を確認できていないものがあります。
 SepACapのHugging Face checkpoint metadataはMITですが、現構成はローカルPoC用途に限定し、権利確認前に
 Docker imageや組み込みソースを公開しないでください。
+
+jaCappella DPTNetの重みは **cc-by-nc-4.0** で、商用利用できません（upstreamの学習コード自体はMIT）。
+MedleyVoxの非公式重みはcc-by-4.0です。
 
 初回はモデルソースを固定commitでDocker imageへ取得します。
 
@@ -107,8 +143,8 @@ curl -X POST http://localhost:8000/separations \
 }
 ```
 
-人数指定はUNMIXXとBS PolarFormerで未指定または2、SepACapとSinger-Informedでは未指定だけを受理します。
-MedleyVoxは公開checkpointが2出力で3人以上の要件を満たさないため実装していません。
+人数指定はUNMIXX、MedleyVox、BS PolarFormerで未指定または2、SepACap、jaCappella DPTNet、
+Singer-Informedでは未指定だけを受理します。
 
 Target singer extractionでは対象楽曲と参照音声を別々にアップロードし、両方のIDを指定します。
 参照音声は対象歌手だけが歌う3秒以上の音声を推奨します。別の曲を使用できますが、会話音声と3人以上の
@@ -135,3 +171,6 @@ docker compose run --rm backend python -m compileall -q main.py src model_runtim
 
 UNMIXX、SepACap、Singer-Informedの実checkpointはRTX 4070 Ti上でスモーク確認済みです。
 Singer-Informedは6秒の44.1 kHz入力で、全重みのstrict load、出力長、有限値、2ステム生成を確認しています。
+jaCappella DPTNet と MedleyVox は20秒の市販曲を `/separations` へ投げ、全重みのstrict load、
+`(n_src, 2, samples)` の出力、44.1 kHzでの全ステム生成まで同じGPUで確認しています。
+jaCappella DPTNetのピークVRAMは5.046秒チャンクで0.5 GiB未満です。

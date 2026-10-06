@@ -82,15 +82,22 @@ docker compose down
 | ボーカルと伴奏に分ける | 2ステム | BS PolarFormer | Vocals、Instrumental |
 | 2 人の歌声を分ける | 複数歌声 / Blind separation | UNMIXX | Singer 1、Singer 2、Instrumental |
 | アカペラを声部ごとに分ける | 複数歌声 / Blind separation | SepACap | alto、bass、finger snap、lead vocal、soprano、tenor、vocal percussion、Instrumental |
+| 声域（女声 / 男声）で分ける | 複数歌声 / Blind separation | jaCappella DPTNet | vocal percussion、bass、alto、tenor、soprano、lead vocal、Instrumental |
 | 指定した歌手の声を取り出す | 複数歌声 / Target singer extraction | Singer-Informed (Concat λ=0.1) | Target Vocal、Other Singer + Instrumental |
 
 「4ステム」「6ステム」と、モデル一覧で「未実装」と表示されるモデルは現在利用できません。
 
 ### 2 人の歌声を分ける
 
-「複数歌声」→「Blind separation」→「UNMIXX」を選択します。参照音声は不要です。出力は匿名の `Singer 1` / `Singer 2` で、歌手名を識別する機能ではありません。
+「複数歌声」→「Blind separation」→「UNMIXX」または「MedleyVox / iSRNet」を選択します。参照音声は不要です。出力は匿名の `Singer 1` / `Singer 2` で、歌手名を識別する機能ではありません。どちらも 2 出力固定なので、3 人以上の歌声は分けられません。
 
 SepACap は歌手の人数を指定して分けるモデルではなく、7 つの固定声部に分けるモデルです。
+
+### 男声 2 人 + 女声 1 人から女声だけを取り出す
+
+「複数歌声」→「Blind separation」→「jaCappella DPTNet」を選択します。歌手ごとではなく声域ごとに分かれるモデルなので、女声は `soprano` / `alto`、男声は `tenor` / `bass` 側へ出ます。歌手を名指しで選ぶ機能ではないため、同じ声域に 2 人いる場合はその 2 人が同じステムへ混ざります。
+
+このモデルの重みは研究用途（cc-by-nc-4.0）で、商用利用はできません。
 
 ### 特定の歌手の声を取り出す
 
@@ -111,7 +118,7 @@ Docker Compose のボリューム設定により、音声とキャッシュは�
 | アップロードした楽曲・参照音声とメタデータ | `backend/audio/sources/<audio_id>/` |
 | ジョブのメタデータ | `backend/audio/separations/<job_id>/metadata.json` |
 | 完成した WAV ファイル | `backend/audio/separations/<job_id>/stems/` |
-| BS PolarFormer・SepACap のモデルキャッシュ | `backend/.model-cache/` |
+| Hugging Face から取得するモデルのキャッシュ | `backend/.model-cache/` |
 
 `docker compose down` で停止しても、これらのファイルは残ります。バックエンドを再起動すると、前回の処理待ち・実行中ジョブは失敗扱いになります。途中からの再開はできないため、画面から分離をやり直してください。
 
