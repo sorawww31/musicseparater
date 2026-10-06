@@ -4,7 +4,18 @@
 
 ブラウザから音声ファイルをアップロードし、ボーカル・伴奏や複数の歌声に分離するアプリケーションです。分離した音声は画面上で試聴し、WAV 形式でダウンロードできます。
 
-## Google Colab で使う（友人への共有向け）
+## Colab 用ノートブックを GitHub からダウンロードする
+
+Google Colab で使用する場合は、先に GitHub から `music_separater.ipynb` をダウンロードします。
+
+1. [music_separater.ipynb の ページ](https://github.com/sorawww31/musicseparater/blob/master/music_separater.ipynb) を開きます。
+2. ファイル一覧の上にある **Download raw file**をクリックします。
+3. [Google Colab](https://colab.research.google.com/) を開き、**ファイル → ノートブックをアップロード**を選択します。
+4. ダウンロードした `music_separater.ipynb` を選択して読み込みます。
+
+読み込んだノートブックでは、GPU を選択してから「① 準備する」→「② アプリを開く」の順に実行してください。
+
+## Google Colab で使う
 
 [music_separater.ipynb](music_separater.ipynb) を Colab で開き、GPU を選択して、
 「① 準備する」→「② アプリを開く」の順に ▶ を押してください。
