@@ -1,4 +1,4 @@
-"""colab_runtime/setup.py: Colab の既存 CUDA 環境を保ち、アプリを準備する。"""
+"""colab_runtime/setup.py: Colab と独立した Python / CUDA 依存環境を uv で準備する。"""
 
 import os
 import shutil
@@ -10,32 +10,54 @@ import urllib.request
 from .artifacts import download, prepare_models
 from .config import (
     DOWNLOAD_TIMEOUT, GPU_HELP, NODE_MINIMUM, NODE_MINIMUM_20, NODE_VERSION,
-    PYTHON, ROOT, WORK,
+    PYTHON, PYTHON_VERSION, ROOT, TORCH_INDEX, TORCH_REQUIREMENT, UV_VERSION, WORK,
 )
 
 
-def prepare_python() -> None:
-    """notebook カーネルとは別の venv に追加依存を入れ、再起動を不要にする。"""
-    import torch
-
-    if not torch.cuda.is_available():
-        raise RuntimeError(GPU_HELP)
-    if sys.version_info[:2] != (3, 12):
-        raise RuntimeError("このアプリは Python 3.12 対応です。Colab のランタイム版を確認してください。")
+def find_uv() -> str:
+    """uv がなければ専用フォルダーに補い、カーネルのパッケージを変更しない。"""
     uv = shutil.which("uv")
-    if uv is None:
-        raise RuntimeError("uv が見つかりません。uv が入った Colab ランタイムを使用してください。")
-    print(f"GPU: {torch.cuda.get_device_name(0)} / PyTorch {torch.__version__}", flush=True)
-    WORK.mkdir(parents=True, exist_ok=True)
-    if not PYTHON.exists():
+    if uv:
+        return uv
+    target = WORK / "tools"
+    binary = target / "bin/uv"
+    if not binary.is_file():
         subprocess.run([
-            uv, "venv", "--system-site-packages", "--python", sys.executable,
-            str(PYTHON.parents[1]),
+            sys.executable, "-m", "pip", "install", "--target", str(target),
+            f"uv=={UV_VERSION}",
         ], check=True)
-    # Docker と同じ lock を使う。torch はプロジェクト依存に含めず Colab 版を継承する。
+    return str(binary)
+
+
+def prepare_python() -> None:
+    """ホストの Python / torch を使わず、指定版を独立環境へ導入する。"""
+    # 大きな wheel を取得する前に、GPU が割り当てられているか確認する。
+    nvidia_smi = shutil.which("nvidia-smi")
+    if nvidia_smi is None:
+        raise RuntimeError(GPU_HELP)
+    gpu = subprocess.run([nvidia_smi, "-L"], capture_output=True, text=True)
+    if gpu.returncode != 0 or not gpu.stdout.strip():
+        raise RuntimeError(GPU_HELP)
+    print(gpu.stdout.strip(), flush=True)
+    WORK.mkdir(parents=True, exist_ok=True)
+    uv = find_uv()
+    env = dict(os.environ, UV_PROJECT_ENVIRONMENT=str(PYTHON.parents[1]))
+    # sync が Python の取得と venv 作成も担当する。再実行時は追加した torch を残す。
+    print(f"アプリ専用の Python {PYTHON_VERSION} と依存を準備しています…", flush=True)
     subprocess.run([
         uv, "sync", "--project", str(ROOT / "backend"), "--locked", "--no-install-project",
-    ], env=dict(os.environ, UV_PROJECT_ENVIRONMENT=str(PYTHON.parents[1])), check=True)
+        "--python", PYTHON_VERSION, "--inexact",
+    ], env=env, check=True)
+    # torch の導入で既存 lock の共通依存が変更されないよう制約を渡す。
+    constraints = WORK / "backend-constraints.txt"
+    subprocess.run([
+        uv, "export", "--project", str(ROOT / "backend"), "--locked",
+        "--no-emit-project", "--no-hashes", "--output-file", str(constraints),
+    ], env=env, check=True, stdout=subprocess.DEVNULL)
+    subprocess.run([
+        uv, "pip", "install", "--python", str(PYTHON),
+        "--index", TORCH_INDEX, "--constraints", str(constraints), TORCH_REQUIREMENT,
+    ], check=True)
     subprocess.run([str(PYTHON), "-m", "colab_runtime.gpu"], cwd=ROOT, check=True)
 
 

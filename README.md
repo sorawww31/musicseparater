@@ -13,7 +13,6 @@
 
 共有者は、**今回の変更を含むコードを取得可能な公開 GitHub リポジトリに置き**、
 ①の `repository_url` に HTTPS URL を設定してノートブックを共有してください。
-この作業フォルダーには Git remote がないため、URL の既定値は空欄です。
 `revision` にコミット ID を指定すれば配布バージョンを固定できます。空欄では既定ブランチを取得します。
 再実行では取得済みコードを利用します。URL・revision の変更や最新版の再取得は、
 ランタイムを削除してから①を実行してください。非公開リポジトリの認証はこの手順の対象外です。
@@ -25,11 +24,16 @@
 
 ### Colab の実行条件と実装
 
-- uv、Python 3.12 と CUDA 対応 PyTorch がある GPU ランタイムを使用します。
-- `uv venv --system-site-packages` で `.colab/venv` を作り、Colab の PyTorch を継承します。
-  追加依存は `UV_PROJECT_ENVIRONMENT="$PWD/.colab/venv" uv sync --project backend --locked --no-install-project`
-  で導入します。既存の `backend/pyproject.toml` と
-  `backend/uv.lock` を使い、依存一覧を二重管理しません。
+- GPU ランタイムを使用します。Colab の Python は 3.13 のままで利用でき、変更不要です。
+- uv が Python 3.12 を選択・必要に応じて取得し、`.colab/venv312` に独立環境を作ります。
+  Colab の Python / PyTorch は引き継ぎません。uv がない場合は `.colab/tools` に導入します。
+- `uv sync --python 3.12 --locked --no-install-project --inexact` で既存の
+  `backend/pyproject.toml` と `backend/uv.lock` の依存を同期します。
+  対象環境は `UV_PROJECT_ENVIRONMENT` で `.colab/venv312` に固定します。
+- CUDA 12.6 対応 PyTorch を公式 wheel 配布元から同じ環境へ追加します。
+  バージョンと配布元は `colab_runtime/config.py` に定義し、lock から出力した制約で
+  共通依存の変更を防ぎます。`--inexact` により再実行時も追加した PyTorch を保持します。
+  GPU 検証・サーバー起動・モデルの子プロセスは、この環境の Python を使用します。
 - Colab の npm / Node.js を優先し、Node.js が Vite の対応版より古い場合だけ `.colab` に補います。
   `npm ci` で既存 UI をビルドします。モデル用コードと重みは
   `backend/Dockerfile` と同じ固定 commit / SHA-256 で取得します。
@@ -41,9 +45,20 @@
 開発時の Colab 補助コードの検証: `python -m unittest discover -s tests -v`。
 既存 API と UI のテストは各 README の手順を使用してください。
 
+①の準備ログとエラーは、そのセル内に順次表示されます。失敗した場合は、
+「準備に失敗しました」の直前のログを確認してください。
+古いコピーで `CalledProcessError` だけが表示される場合は、更新したノートブックを開いてください。
+「困ったとき：ログを表示する」はアプリ起動後のログ用です。
+
+旧版から更新する場合は、変更したコードを GitHub に反映してから、更新したノートブックを
+Colab で開き、ランタイムを削除して①から実行してください。セルだけの差し替えでは
+取得済みの `colab_runtime` は更新されません。終了前に必要な WAV を保存してください。
+
 参照: [Colab 公式表示 API](https://github.com/googlecolab/colabtools/blob/main/google/colab/output/_util.py)、
 [ONNX Runtime CUDA](https://onnxruntime.ai/docs/execution-providers/CUDA-ExecutionProvider.html)、
 [Vite の相対ベース URL](https://vite.dev/guide/build.html#relative-base)。
+環境構築: [uv の Python 管理](https://docs.astral.sh/uv/concepts/python-versions/)、
+[PyTorch 公式 CUDA wheel](https://pytorch.org/get-started/previous-versions/)。
 
 ## ローカルで使う場合に必要な環境
 
